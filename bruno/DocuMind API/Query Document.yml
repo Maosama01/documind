@@ -1,0 +1,15 @@
+info:
+  name: Query Document
+  type: http
+  seq: 5
+
+http:
+  method: POST
+  url: http://localhost:8000/query/
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
