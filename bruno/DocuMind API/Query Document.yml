@@ -6,6 +6,13 @@ info:
 http:
   method: POST
   url: http://localhost:8000/query/
+  body:
+    type: json
+    data: |-
+      {
+        "question": "What are the payment terms?",
+        "document_id": 1
+      }
   auth: inherit
 
 settings:
