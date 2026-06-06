@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: pgvector/pgvector:pg16
+    # We use pgvector instead of plain postgres
+    # because it adds vector search support (needed for AI in Week 3+)
+    
+    container_name: documind_db
+    # A friendly name so we can identify this container
+    
+    environment:
+      POSTGRES_USER: documind_user
+      POSTGRES_PASSWORD: documind_pass
+      POSTGRES_DB: documind
+      # These create a database called "documind"
+      # with username "documind_user" and password "documind_pass"
+    
+    ports:
+      - "5432:5432"
+      # Format: "host_port:container_port"
+      # PostgreSQL runs on port 5432 inside the container
+      # We expose it on port 5432 on our Mac too
+      # So we connect to localhost:5432
+    
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # This saves the database data even if the container stops
+      # Without this, all data disappears when container stops
+    
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U documind_user -d documind"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      # Docker checks if Postgres is ready every 5 seconds
+      # Our backend won't start until DB is healthy
+
+volumes:
+  postgres_data:
+  # Defines the named volume used above
+  # Docker manages this storage automatically

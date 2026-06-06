@@ -1,5 +1,10 @@
 # pyrefly: ignore [missing-import]
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+# pyrefly: ignore [missing-import]
+from sqlalchemy.orm import Session
+from app.database import get_db
+from app.models.user import User
+from app.services.dependencies import get_current_user
 
 router = APIRouter(
     prefix="/documents",
@@ -7,28 +12,44 @@ router = APIRouter(
 )
 
 @router.get("/")
-def list_documents():
+def list_documents(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+    # Depends(get_current_user) means:
+    # "Before running this function, run get_current_user first"
+    # "If it fails (invalid token), return 401 automatically"
+    # "If it succeeds, pass the User object here as current_user"
+):
+    """
+    List all documents for the logged-in user.
+    Requires authentication.
+    """
     return {
-        "documents": [
-            {"id": 1, "name": "sample.pdf", "status": "processed"},
-            {"id": 2, "name": "contract.pdf", "status": "processing"}
-        ],
-        "total": 2
+        "documents": [],
+        "total": 0,
+        "owner": current_user.email
+        # Now we know WHO is asking!
     }
 
 @router.get("/{document_id}")
-def get_document(document_id: int):
+def get_document(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     return {
         "id": document_id,
         "name": f"document_{document_id}.pdf",
         "status": "processed",
-        "pages": 10
+        "owner": current_user.email
     }
 
 @router.post("/")
-def upload_document():
+def upload_document(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     return {
-        "message": "Document uploaded successfully",
-        "id": 3,
-        "status": "processing"
+        "message": "Document upload coming in Week 3!",
+        "owner": current_user.email
     }
