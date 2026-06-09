@@ -1,14 +1,12 @@
 info:
-  name: List Documents (Protected)
+  name: Check Status
   type: http
-  seq: 8
+  seq: 10
 
 http:
   method: GET
-  url: http://localhost:8000/documents/
-  auth:
-    type: bearer
-    token: ""
+  url: http://localhost:8000/documents/1/status
+  auth: inherit
 
 settings:
   encodeUrl: true
