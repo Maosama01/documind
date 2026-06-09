@@ -1,0 +1,22 @@
+info:
+  name: Test Semantic Search
+  type: http
+  seq: 11
+
+http:
+  method: GET
+  url: http://localhost:8000/documents/1/search?q=what is this document about&top_k=3
+  params:
+    - name: q
+      value: what is this document about
+      type: query
+    - name: top_k
+      value: "3"
+      type: query
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

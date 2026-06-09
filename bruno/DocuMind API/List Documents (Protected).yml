@@ -6,7 +6,9 @@ info:
 http:
   method: GET
   url: http://localhost:8000/documents/
-  auth: inherit
+  auth:
+    type: bearer
+    token: ""
 
 settings:
   encodeUrl: true

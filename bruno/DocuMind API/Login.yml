@@ -6,6 +6,14 @@ info:
 http:
   method: POST
   url: http://localhost:8000/auth/login
+  body:
+    type: json
+    data: |-
+      {
+        "email": "tanishq@gmail.com",
+        "full_name": "Tanishq Khandelwal",
+        "password": "mypassword123"
+      }
   auth: inherit
 
 settings:
