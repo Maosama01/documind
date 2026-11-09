@@ -52,6 +52,7 @@ def upload_dir(tmp_path, monkeypatch) -> Path:
 @pytest.fixture
 def fake_model(monkeypatch):
     monkeypatch.setattr(document_service, "get_model", lambda: object())
+    monkeypatch.setattr(document_service, "count_word_tokens", lambda words: [1] * len(words))
     monkeypatch.setattr(document_service, "count_over_token_limit", lambda texts: 0)
     monkeypatch.setattr(
         document_service, "create_embeddings_batch", lambda texts: [[0.1] * 384 for _ in texts]

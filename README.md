@@ -18,9 +18,10 @@ does today and what is still missing.
 - **Upload:** `POST /documents/upload` accepts a PDF up to 10 MB, saves it to `backend/uploads/`, and
   processes it in the background. If processing fails, the document's `error_message` says why
   (for example, the file is not a readable PDF, or it has no extractable text).
-- **Processing:** pypdf extracts the text of each page; the text is split into 180-word chunks with a
-  30-word overlap that never cross a page; `all-MiniLM-L6-v2` turns each chunk into a 384-number
-  vector; chunks and vectors go into the `chunks` table.
+- **Processing:** pypdf extracts the text of each page; the text is split into chunks of whole words
+  of at most 240 tokens, counted with the embedding model's own tokenizer, with a 40-token overlap
+  and never crossing a page; `all-MiniLM-L6-v2` turns each chunk into a 384-number vector; chunks
+  and vectors go into the `chunks` table.
 - **Search:** `GET /documents/{id}/search` returns the chunks of one document closest to a question
   (cosine distance, exact).
 - **Answers:** `POST /query/` retrieves the top chunks and asks the configured provider to answer
@@ -34,7 +35,7 @@ does today and what is still missing.
 ```
 upload PDF ──► saved to backend/uploads/ ──► background task:
                  pypdf text per page
-                 → 180-word chunks, 30-word overlap, never across pages
+                 → chunks of whole words, ≤ 240 model tokens, 40-token overlap, never across pages
                  → all-MiniLM-L6-v2 embeddings (384 numbers each)
                  → chunks table (pgvector column)
 
@@ -131,8 +132,8 @@ refuses to start when a required value is missing or unsafe.
 | `DEBUG` | `false` | Passed to FastAPI; `true` returns tracebacks in error responses |
 | `ALGORITHM` | `HS256` | JWT signing algorithm |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Token lifetime |
-| `CHUNK_SIZE_WORDS` | `180` | Words per chunk. Must be larger than the overlap |
-| `CHUNK_OVERLAP_WORDS` | `30` | Words shared by neighbouring chunks. Must be at least 20 |
+| `CHUNK_SIZE_TOKENS` | `240` | Most tokens per chunk, counted with the embedding model's tokenizer. At most 254 |
+| `CHUNK_OVERLAP_TOKENS` | `40` | Most tokens of text shared by neighbouring chunks. Smaller than the chunk size |
 | `LLM_PROVIDER` | `none` | `none`, `gemini` or `anthropic` |
 | `GEMINI_API_KEY` | empty | Required when `LLM_PROVIDER=gemini` |
 | `GEMINI_MODEL` | `gemini-3.8-flash` | Gemini model for answers |
@@ -145,13 +146,14 @@ refuses to start when a required value is missing or unsafe.
 
 Each decision has a longer explanation next to the code it describes.
 
-- **180-word chunks, 30-word overlap** (`config.py`, `chunking_service.py`). `all-MiniLM-L6-v2`
-  embeds at most 256 tokens and silently drops the rest. On the one PDF measured, the old 500-word
-  chunks ran to 565-660 tokens, so most of each chunk was never searchable. At 180 words that PDF
-  averaged 1.35 tokens per word and its largest chunk was 255 tokens: inside the limit, barely. Denser
-  text can still go over, so processing logs how many chunks exceed the limit, counted with the
-  model's own tokenizer. The app refuses an overlap under 20 words, because a shorter overlap could
-  drop the last words of a page.
+- **Chunks sized in the model's own tokens** (`config.py`, `chunking_service.py`).
+  `all-MiniLM-L6-v2` embeds at most 256 tokens, two of which it uses itself, and silently drops the
+  rest. On the one PDF measured, the original 500-word chunks ran to 565-660 tokens, so most of each
+  chunk was never searchable, and even 180-word chunks reached 255. Chunks are now built from whole
+  words, adding words while the total stays within 240 tokens. The count is exact before embedding:
+  the tokenizer splits on whitespace before cutting words into pieces, so a run of words costs the
+  sum of its words (checked on that PDF: no mismatches). The one exception is a single word longer
+  than the whole budget; it gets a chunk of its own and the over-limit warning reports it.
 - **Exact search, no approximate vector index** (`document_service.semantic_search`). Every query is
   limited to one document, which a normal index on `chunks.document_id` finds directly. In a test
   with pgvector 0.8.7 and random vectors (200 documents, 100 chunks each), adding an HNSW index made
@@ -226,8 +228,6 @@ is most of the document.
 
 - **OCR.** Text comes from pypdf only. Scanned pages have no text and are skipped; a PDF with no text
   at all ends as `failed`.
-- **Token-based chunking.** Chunks are measured in words, so a dense chunk can still exceed the
-  model's 256-token limit (logged, not prevented).
 - **Deployment.** No Dockerfile for the API and no hosting: Docker Compose runs only PostgreSQL, and
   uploads are stored on the local disk.
 - **Migrations.** Tables are created with SQLAlchemy `create_all`, which never changes an existing

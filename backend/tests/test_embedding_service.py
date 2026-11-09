@@ -20,10 +20,15 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 
 class FakeTokenizer:
-    """One token per word, plus [CLS] and [SEP], like a real BERT tokenizer adds."""
+    """
+    One token per space-separated word, plus one more per hyphen (so "e-mail"
+    costs 2), plus [CLS] and [SEP] unless add_special_tokens=False, like a
+    real BERT tokenizer.
+    """
 
-    def __call__(self, texts, verbose=True):
-        return {"input_ids": [[0] * (len(text.split()) + 2) for text in texts]}
+    def __call__(self, texts, add_special_tokens=True, verbose=True):
+        special = 2 if add_special_tokens else 0
+        return {"input_ids": [[0] * (len(text.split()) + text.count("-") + special) for text in texts]}
 
 
 class FakeSentenceTransformer:
@@ -85,6 +90,19 @@ def test_count_over_token_limit_counts_texts_longer_than_max_seq_length(monkeypa
 
     assert embedding_service.count_over_token_limit([fits, too_long, fits, too_long]) == 2
     assert embedding_service.count_over_token_limit([fits]) == 0
+
+
+def test_count_word_tokens_counts_each_word_without_the_special_tokens(monkeypatch):
+    use_fake_model(monkeypatch)
+
+    assert embedding_service.count_word_tokens(["send", "an", "e-mail"]) == [1, 1, 2]
+
+
+def test_count_word_tokens_of_no_words_does_not_load_the_model(monkeypatch):
+    use_fake_model(monkeypatch)
+
+    assert embedding_service.count_word_tokens([]) == []
+    assert FakeSentenceTransformer.instances == 0
 
 
 def test_count_over_token_limit_does_not_load_the_model_for_no_texts(monkeypatch):

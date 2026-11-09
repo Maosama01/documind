@@ -29,26 +29,44 @@ def test_debug_defaults_to_false(monkeypatch):
     assert Settings(_env_file=None).DEBUG is False
 
 
-def test_chunk_settings_default_to_180_and_30(monkeypatch):
-    monkeypatch.delenv("CHUNK_SIZE_WORDS", raising=False)
-    monkeypatch.delenv("CHUNK_OVERLAP_WORDS", raising=False)
+def test_chunk_settings_default_to_240_and_40_tokens(monkeypatch):
+    monkeypatch.delenv("CHUNK_SIZE_TOKENS", raising=False)
+    monkeypatch.delenv("CHUNK_OVERLAP_TOKENS", raising=False)
     loaded = Settings(_env_file=None)
-    assert (loaded.CHUNK_SIZE_WORDS, loaded.CHUNK_OVERLAP_WORDS) == (180, 30)
+    assert (loaded.CHUNK_SIZE_TOKENS, loaded.CHUNK_OVERLAP_TOKENS) == (240, 40)
 
 
 def test_chunk_settings_can_be_set_from_the_environment(monkeypatch):
-    monkeypatch.setenv("CHUNK_SIZE_WORDS", "120")
-    monkeypatch.setenv("CHUNK_OVERLAP_WORDS", "25")
+    monkeypatch.setenv("CHUNK_SIZE_TOKENS", "120")
+    monkeypatch.setenv("CHUNK_OVERLAP_TOKENS", "25")
     loaded = Settings(_env_file=None)
-    assert (loaded.CHUNK_SIZE_WORDS, loaded.CHUNK_OVERLAP_WORDS) == (120, 25)
+    assert (loaded.CHUNK_SIZE_TOKENS, loaded.CHUNK_OVERLAP_TOKENS) == (120, 25)
 
 
-@pytest.mark.parametrize("size,overlap", [("180", "10"), ("180", "180"), ("100", "150")])
-def test_app_refuses_unsafe_chunk_settings(monkeypatch, size, overlap):
-    monkeypatch.setenv("CHUNK_SIZE_WORDS", size)
-    monkeypatch.setenv("CHUNK_OVERLAP_WORDS", overlap)
-    with pytest.raises(ValidationError, match="chunk overlap"):
+@pytest.mark.parametrize(
+    "size,overlap,reason",
+    [("255", "40", "between 1 and 254"), ("240", "240", "smaller than chunk size"),
+     ("240", "-1", "at least 0"), ("0", "0", "between 1 and 254")],
+)
+def test_app_refuses_unsafe_chunk_settings(monkeypatch, size, overlap, reason):
+    monkeypatch.setenv("CHUNK_SIZE_TOKENS", size)
+    monkeypatch.setenv("CHUNK_OVERLAP_TOKENS", overlap)
+    with pytest.raises(ValidationError, match=reason):
         Settings(_env_file=None)
+
+
+def test_an_old_env_file_with_word_settings_stops_startup(tmp_path):
+    """The word-based settings were replaced; a .env still setting them is rejected, not ignored."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("CHUNK_SIZE_WORDS=180\nCHUNK_OVERLAP_WORDS=30\n")
+    with pytest.raises(ValidationError, match="(?i)chunk_size_words"):
+        Settings(_env_file=env_file)
+
+
+def test_an_old_exported_word_setting_is_ignored(monkeypatch):
+    """Unlike .env entries, unknown environment variables are not checked."""
+    monkeypatch.setenv("CHUNK_SIZE_WORDS", "180")
+    assert Settings(_env_file=None).CHUNK_SIZE_TOKENS == 240
 
 
 def test_llm_provider_defaults_to_none(monkeypatch):

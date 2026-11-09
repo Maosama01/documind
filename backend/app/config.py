@@ -3,7 +3,7 @@ from typing import Literal, Optional
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.services.chunking_service import MIN_CHUNK_WORDS, validate_chunk_settings
+from app.services.chunking_service import validate_chunk_settings
 
 MIN_SECRET_KEY_LENGTH = 32
 
@@ -37,22 +37,21 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
-    # Chunking, measured in words
+    # Chunking, measured in tokens of the embedding model's own tokenizer
     # all-MiniLM-L6-v2 embeds at most 256 tokens per text (max_seq_length in its
-    # sentence_bert_config.json, counting the [CLS] and [SEP] tokens). Anything
-    # longer is cut off without an error, so the end of an oversized chunk is never
-    # embedded and can never be found by search. The old 500-word chunks ran to
-    # 565-660 tokens on the one PDF measured.
-    # 180 words aims to stay under 256: on that PDF (930 words of English prose)
-    # MiniLM's tokenizer averaged 1.35 tokens per word, and the largest 180-word
-    # chunk was 255 tokens. That is one document, not a guarantee: numbers, names
-    # and code produce more tokens per word, so process_document logs how many
-    # chunks still exceed the limit.
-    CHUNK_SIZE_WORDS: int = 180
-    CHUNK_OVERLAP_WORDS: int = 30
-    # Words repeated at the start of the next chunk on the same page, so text cut
-    # at a boundary keeps some context. Must be at least MIN_CHUNK_WORDS (20) and
-    # less than CHUNK_SIZE_WORDS; see validate_chunk_settings.
+    # sentence_bert_config.json), two of which are its own [CLS] and [SEP], so a
+    # chunk can hold at most 254. Anything longer is cut off without an error and
+    # can never be found by search. (Measured on the one local PDF: the original
+    # 500-word chunks ran to 565-660 tokens; 180-word chunks averaged 1.35 tokens
+    # per word and reached 255.)
+    # Chunks are built from whole words and counted exactly before embedding,
+    # so they always fit. 240 keeps them about the size of the earlier 180-word
+    # chunks.
+    CHUNK_SIZE_TOKENS: int = 240
+    CHUNK_OVERLAP_TOKENS: int = 40
+    # Tokens of text repeated at the start of the next chunk on the same page,
+    # so text cut at a boundary keeps some context.
+    # The app refuses to start unless 0 <= overlap < size <= 254.
 
     # Answer generation for POST /query/
     LLM_PROVIDER: Literal["none", "gemini", "anthropic"] = "none"
@@ -77,9 +76,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def chunk_settings_must_be_safe(self) -> "Settings":
-        # The app refuses to start with chunk settings that would crash the
-        # chunker, produce no chunks, or drop words at the end of a page.
-        validate_chunk_settings(self.CHUNK_SIZE_WORDS, self.CHUNK_OVERLAP_WORDS, MIN_CHUNK_WORDS)
+        # The app refuses to start with chunk settings the model cannot embed
+        # in full, or that would stop the chunker from moving forward.
+        validate_chunk_settings(self.CHUNK_SIZE_TOKENS, self.CHUNK_OVERLAP_TOKENS)
         return self
 
     @field_validator("SECRET_KEY")

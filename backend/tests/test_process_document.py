@@ -38,6 +38,7 @@ def fake_pdf(monkeypatch):
     )
     monkeypatch.setattr(document_service, "get_file_size", lambda path: 1234)
     monkeypatch.setattr(document_service, "get_model", lambda: object())
+    monkeypatch.setattr(document_service, "count_word_tokens", lambda words: [1] * len(words))
     monkeypatch.setattr(document_service, "count_over_token_limit", lambda texts: pdf["over_limit"])
     monkeypatch.setattr(
         document_service, "create_embeddings_batch", lambda texts: [[0.0] * 384 for _ in texts]
@@ -79,15 +80,15 @@ def test_chunks_use_the_size_and_overlap_settings(db_session, fake_pdf):
 
     document_service.process_document(document_id, "unused.pdf")
 
-    assert chunk_sizes(db_session, document_id) == [180, 180, 100]
+    assert chunk_sizes(db_session, document_id) == [240, 200]  # one token per word
     document = reloaded(db_session, document_id)
     assert document.status == "processed"
     assert document.error_message is None
 
 
 def test_changing_the_settings_changes_the_chunks(db_session, fake_pdf, monkeypatch):
-    monkeypatch.setattr(settings, "CHUNK_SIZE_WORDS", 100)
-    monkeypatch.setattr(settings, "CHUNK_OVERLAP_WORDS", 20)
+    monkeypatch.setattr(settings, "CHUNK_SIZE_TOKENS", 100)
+    monkeypatch.setattr(settings, "CHUNK_OVERLAP_TOKENS", 20)
     fake_pdf["pages"] = [{"page_number": 1, "text": page_text(400)}]
     document_id = new_document(db_session)
 
@@ -104,7 +105,7 @@ def test_chunks_over_the_token_limit_are_logged(db_session, fake_pdf, caplog):
     with caplog.at_level(logging.WARNING, logger="app.services.document_service"):
         document_service.process_document(document_id, "unused.pdf")
 
-    assert f"Document {document_id}: 2 of 3 chunks exceed" in caplog.text
+    assert f"Document {document_id}: 2 of 2 chunks exceed" in caplog.text
 
 
 def test_nothing_is_logged_when_every_chunk_fits(db_session, fake_pdf, caplog):
@@ -203,3 +204,14 @@ def test_a_deleted_document_is_skipped(db_session, fake_pdf, caplog):
         document_service.process_document(999_999, "unused.pdf")
 
     assert "Document 999999 was deleted before processing started" in caplog.text
+
+
+def test_a_pdf_without_text_is_reported_as_such_even_without_the_model(db_session, fake_pdf, monkeypatch):
+    """The text check runs before the model loads, so the reason stays accurate."""
+    fake_pdf["pages"] = []
+    monkeypatch.setattr(document_service, "get_model", lambda: raise_(OSError("model cache missing")))
+    document_id = new_document(db_session)
+
+    document_service.process_document(document_id, "unused.pdf")
+
+    assert reloaded(db_session, document_id).error_message == NO_TEXT

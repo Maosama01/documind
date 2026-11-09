@@ -1,33 +1,30 @@
-from typing import List, Dict
+from typing import Callable, Dict, List
 
-MIN_CHUNK_WORDS = 20
+MAX_CHUNK_TOKENS = 254
+# all-MiniLM-L6-v2 embeds at most 256 tokens per text (max_seq_length in its
+# sentence_bert_config.json), and the tokenizer adds two of its own: [CLS] at
+# the start and [SEP] at the end. That leaves 254 for the chunk's text.
+
+MIN_PAGE_WORDS = 20
 # A page with fewer words than this is skipped: these are usually page numbers,
 # headers or footers. It also skips a page that holds one short sentence.
 
+TokenCounter = Callable[[List[str]], List[int]]
+# Given a page's words, returns how many tokens each word costs.
+# embedding_service.count_word_tokens is the real one.
 
-def validate_chunk_settings(chunk_size: int, chunk_overlap: int, min_chunk_words: int) -> None:
-    """
-    Raise ValueError unless 0 < min_chunk_words <= chunk_overlap < chunk_size.
 
-    - chunk_overlap < chunk_size: the window moves forward by chunk_size - chunk_overlap
-      words. At 0 the loop would never advance; below 0 it would produce no chunks.
-    - chunk_overlap >= min_chunk_words: this is what makes dropping short pieces safe.
-      After the first window on a page, every window starts with chunk_overlap words
-      already seen plus at least one new word, so it is never shorter than
-      min_chunk_words and never dropped. The only piece that can be dropped is a whole
-      page shorter than min_chunk_words.
-    """
-    if min_chunk_words < 1:
-        raise ValueError(f"min_chunk_words must be at least 1, got {min_chunk_words}")
-    if chunk_overlap < min_chunk_words:
+def validate_chunk_settings(chunk_size: int, chunk_overlap: int) -> None:
+    """Raise ValueError unless 1 <= chunk_size <= MAX_CHUNK_TOKENS and 0 <= chunk_overlap < chunk_size."""
+    if not 1 <= chunk_size <= MAX_CHUNK_TOKENS:
         raise ValueError(
-            f"chunk overlap ({chunk_overlap} words) must be at least {min_chunk_words} words; "
-            "with less, the end of a page can be dropped as a short tail and lost"
+            f"chunk size must be between 1 and {MAX_CHUNK_TOKENS} tokens, got {chunk_size}: "
+            "the embedding model reads 256 tokens, two of which it uses itself"
         )
-    if chunk_overlap >= chunk_size:
+    if not 0 <= chunk_overlap < chunk_size:
         raise ValueError(
-            f"chunk overlap ({chunk_overlap} words) must be smaller than "
-            f"chunk size ({chunk_size} words)"
+            f"chunk overlap must be at least 0 and smaller than chunk size "
+            f"({chunk_size} tokens), got {chunk_overlap}"
         )
 
 
@@ -35,69 +32,78 @@ def split_text_into_chunks(
     pages: List[Dict],
     chunk_size: int,
     chunk_overlap: int,
-    min_chunk_words: int
+    count_tokens: TokenCounter,
+    min_page_words: int = MIN_PAGE_WORDS
 ) -> List[Dict]:
     """
-    Split document pages into overlapping word windows, one page at a time.
+    Split document pages into overlapping chunks of whole words, measured in tokens.
 
-    Why overlap? Imagine a sentence is cut right at a chunk boundary:
-    "The payment terms are net 30 days" gets split as:
-    Chunk 1: "...The payment terms are"
-    Chunk 2: "net 30 days from invoice..."
+    For each page, words are added to a chunk while the chunk's token count
+    stays within chunk_size. The next chunk starts with the last words of the
+    previous one, as many as fit in chunk_overlap tokens, so a sentence cut at
+    a boundary keeps its context.
 
-    With overlap, chunk 2 starts chunk_overlap words before the boundary,
-    so it includes "...The payment terms are net 30 days..."
+    A chunk's token count is the sum of its words' token counts. That holds
+    for the embedding model's tokenizer because it splits text on whitespace
+    before cutting words into pieces.
 
-    Guarantees (see validate_chunk_settings):
+    Guarantees:
     - A chunk never mixes words from two pages, so its page_number is exact.
-    - No chunk is longer than chunk_size words.
-    - Neighbouring chunks on the same page share exactly chunk_overlap words.
-    - Every word of a page with at least min_chunk_words words is in some chunk,
-      including the last word. Pages with fewer words produce no chunk.
+    - A chunk has at most chunk_size tokens, except a single word that is
+      longer than chunk_size on its own: it becomes a chunk by itself (the
+      model will still cut it off; the token-limit warning reports it).
+    - Every chunk adds at least one word the previous chunk did not have.
+    - Every word of a page with at least min_page_words words is in some
+      chunk, including the last word. Shorter pages produce no chunk.
 
     Splitting is on whitespace, so paragraph breaks and newlines are not kept.
-
-    Args:
-        pages: List of {"page_number": int, "text": str}
-        chunk_size: Maximum number of words per chunk
-        chunk_overlap: Number of words repeated between neighbouring chunks
-        min_chunk_words: Pages with fewer words than this are skipped
 
     Returns:
         List of {"content": str, "chunk_index": int, "page_number": int},
         with chunk_index counting 0, 1, 2, ... across the whole document.
     """
-    validate_chunk_settings(chunk_size, chunk_overlap, min_chunk_words)
+    validate_chunk_settings(chunk_size, chunk_overlap)
 
     chunks = []
     chunk_index = 0
-    step = chunk_size - chunk_overlap
 
     for page in pages:
-        page_number = page["page_number"]
         words = page["text"].split()
+        if len(words) < min_page_words:
+            continue
+        costs = count_tokens(words)
 
-        # Slide a window of chunk_size words across the page, moving `step` words
-        # at a time, so each window repeats the last chunk_overlap words of the one before
-        for start in range(0, len(words), step):
-            end = start + chunk_size
-            chunk_words = words[start:end]
-
-            # Only the first window of a page can be this short (the whole page
-            # is shorter than min_chunk_words); later windows always hold
-            # chunk_overlap >= min_chunk_words words plus at least one new one
-            if len(chunk_words) < min_chunk_words:
-                break
+        start = 0
+        while True:
+            # Add words while they fit. The first word always goes in, so a
+            # word longer than chunk_size still makes progress as its own chunk.
+            end, used = start, 0
+            while end < len(words) and (end == start or used + costs[end] <= chunk_size):
+                used += costs[end]
+                end += 1
 
             chunks.append({
-                "content": " ".join(chunk_words),
+                "content": " ".join(words[start:end]),
                 "chunk_index": chunk_index,
-                "page_number": page_number
+                "page_number": page["page_number"]
             })
             chunk_index += 1
 
-            # This window reached the last word of the page
-            if end >= len(words):
+            if end >= len(words):  # this chunk reached the last word of the page
                 break
+
+            # Step back over the last words of this chunk while they fit in the
+            # overlap AND still leave room for the next new word (words[end]),
+            # so the next chunk always contains at least one new word. Never
+            # step back to `start`: that would repeat this chunk.
+            next_start, overlap_used = end, 0
+            while (
+                next_start - 1 > start
+                and overlap_used + costs[next_start - 1] <= chunk_overlap
+                and overlap_used + costs[next_start - 1] + costs[end] <= chunk_size
+            ):
+                next_start -= 1
+                overlap_used += costs[next_start]
+            start = next_start
 
     return chunks

@@ -64,6 +64,22 @@ def create_embeddings_batch(texts: List[str], show_progress_bar: bool = True) ->
 
     return [emb.tolist() for emb in embeddings]
 
+def count_word_tokens(words: List[str]) -> List[int]:
+    """
+    How many tokens each word costs with the model's own tokenizer, without
+    the [CLS] and [SEP] tokens the tokenizer adds once per text.
+
+    The chunker adds these up to size chunks. That is exact because MiniLM's
+    tokenizer splits text on whitespace (and punctuation) before cutting
+    words into pieces: a run of words costs the sum of its words. Checked on
+    the local PDF: 0 mismatches over every window tested.
+    """
+    if not words:
+        return []
+    token_ids = get_model().tokenizer(words, add_special_tokens=False, verbose=False)["input_ids"]
+    return [len(ids) for ids in token_ids]
+
+
 def count_over_token_limit(texts: List[str]) -> int:
     """
     Count how many texts are longer than the model's token limit.

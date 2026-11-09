@@ -46,7 +46,7 @@ code for a phase, list the files to be touched and ask all questions in one batc
 ## Known state (verified by audit, do not re-derive)
 
 - pypdf extraction per page; word-based chunking 500/50 in `chunking_service.py` (Phase 2: now
-  180/30 from settings);
+  180/30 from settings; Phase 8: token-based, 240/40 model tokens of whole words);
   all-MiniLM-L6-v2 embeddings (384 dims) in a pgvector `Vector(384)` column; search orders by
   `Chunk.embedding.op("<=>")` with no index (Phase 4: exact search via a btree index on
   `chunks.document_id`; deliberately no HNSW, see below); python-jose HS256 JWT, 30 min; upload uses FastAPI
@@ -59,8 +59,8 @@ code for a phase, list the files to be touched and ask all questions in one batc
   - No `CREATE EXTENSION vector` anywhere.
   - 500-word chunks exceed MiniLM's 256-token window, so chunk tails are silently truncated.
     (Phase 2: measured on the one local PDF, 2 of 3 500-word chunks were over, at 565 and 660
-    tokens; at 180 words 0 of 7 were over, the largest at 255. Still word-based, so dense text can
-    exceed 256; `process_document` logs how many chunks do.)
+    tokens; at 180 words 0 of 7 were over, the largest at 255. Phase 8 fixed it: chunks are packed
+    by exact per-word token counts, so only a single word longer than 254 tokens can exceed it.)
   - A user PDF is committed under `backend/uploads/`.
   - Zero tests, no CI. (Tests since Phase 1; CI in `.github/workflows/tests.yml` since Phase 4.)
   - README claims AWS, React, Ollama and GitHub Actions that do not exist. (Fixed in Phase 6;
@@ -162,6 +162,17 @@ for readers, so update both places when one is fixed):
   interrupted documents; DELETE removes the PDF (path checked to stay in `uploads/`);
   `datetime.utcnow` and pydantic class `Config` replaced, and `pytest.ini` turns DeprecationWarnings
   from `app.` modules into errors.
+- [x] **Phase 8, token-based chunking** (committed 2026-11-09; 178 tests pass against pgvector, 51
+  marked db). `CHUNK_SIZE_TOKENS=240` / `CHUNK_OVERLAP_TOKENS=40` replace the word
+  settings (an old `.env` with the word names stops startup; an exported env var is ignored); the
+  app refuses unless `0 <= overlap < size <= 254`. Chunks pack whole words using
+  `embedding_service.count_word_tokens` (the model's tokenizer, per word, no special tokens); a run
+  of words costs the sum of its words because BertPreTokenizer splits on whitespace first (0
+  mismatches on the local PDF). A word longer than the budget gets its own chunk. Real-tokenizer
+  check on the local PDF: 240/40 gave 7 chunks, max 242 full tokens; 254/0 gave max exactly 256.
+  The overlap is now "as many trailing words as fit in 40 tokens and leave room for the next word",
+  not an exact word count. Pages under `MIN_PAGE_WORDS` (20) are still skipped, checked before the
+  model loads so a scanned PDF reports "no text" even when the model is missing.
 - [x] **Follow-up, Swagger login** (2026-11-09): `POST /auth/token` takes the OAuth2 password form
   (`username` = email) and the bearer scheme's `tokenUrl` points to it, so Swagger's Authorize
   button works; JSON `/auth/login` is unchanged; `/auth/me` uses `get_current_user` instead of its

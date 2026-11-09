@@ -8,9 +8,10 @@ from app.database import SessionLocal
 from app.models.document import Document
 from app.models.chunk import Chunk
 from app.services.pdf_service import extract_text_from_pdf, get_pdf_metadata, get_file_size
-from app.services.chunking_service import MIN_CHUNK_WORDS, split_text_into_chunks
+from app.services.chunking_service import MIN_PAGE_WORDS, split_text_into_chunks
 from app.services.embedding_service import (
     count_over_token_limit,
+    count_word_tokens,
     create_embeddings_batch,
     create_embedding,
     get_model
@@ -77,27 +78,31 @@ def _process(db: Session, document_id: int, file_path: str) -> None:
         document.file_size = get_file_size(file_path)
         db.commit()
 
-        # Step 2: Split into chunks
-        chunks_data = split_text_into_chunks(
-            pages,
-            chunk_size=settings.CHUNK_SIZE_WORDS,
-            chunk_overlap=settings.CHUNK_OVERLAP_WORDS,
-            min_chunk_words=MIN_CHUNK_WORDS
-        )
-        if not chunks_data:
+        # Step 2: Is there enough text to chunk? Checked before loading the
+        # model, so a scanned PDF is reported as such even if the model is missing.
+        if not any(len(page["text"].split()) >= MIN_PAGE_WORDS for page in pages):
             raise ProcessingError(NO_TEXT)
 
-        # Step 3: Load the model explicitly, so a missing download or an
-        # unwritable model cache is reported as such, not as an internal error
+        # Step 3: Load the model explicitly (chunking needs its tokenizer), so a
+        # missing download or an unwritable model cache is reported as such,
+        # not as an internal error
         try:
             get_model()
         except Exception as error:
             raise ProcessingError(MODEL_UNAVAILABLE) from error
 
+        # Step 4: Split into chunks of whole words, sized in the model's tokens
+        chunks_data = split_text_into_chunks(
+            pages,
+            chunk_size=settings.CHUNK_SIZE_TOKENS,
+            chunk_overlap=settings.CHUNK_OVERLAP_TOKENS,
+            count_tokens=count_word_tokens
+        )
         chunk_texts = [chunk["content"] for chunk in chunks_data]
 
-        # Word-based chunk sizes only estimate the token count, so measure it:
-        # text past the model's token limit is not embedded and cannot be found.
+        # Chunks are sized in model tokens, so only a single word longer than
+        # the whole limit can still exceed it. Measure anyway: text past the
+        # limit is not embedded and cannot be found.
         over_limit = count_over_token_limit(chunk_texts)
         if over_limit:
             logger.warning(
@@ -106,11 +111,11 @@ def _process(db: Session, document_id: int, file_path: str) -> None:
                 document_id, over_limit, len(chunk_texts)
             )
 
-        # Step 4: Create embeddings for ALL chunks at once (batch processing)
+        # Step 5: Create embeddings for ALL chunks at once (batch processing)
         # This is much faster than embedding one chunk at a time
         embeddings = create_embeddings_batch(chunk_texts)
 
-        # Step 5: Save the chunks and mark the document processed, in one commit
+        # Step 6: Save the chunks and mark the document processed, in one commit
         for chunk_data, embedding in zip(chunks_data, embeddings):
             db.add(Chunk(
                 content=chunk_data["content"],
