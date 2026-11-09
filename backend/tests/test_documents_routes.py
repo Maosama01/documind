@@ -12,33 +12,11 @@ import pytest
 from app.services import document_service, pdf_service
 from app.services.document_service import UNREADABLE_PDF
 from app.services.pdf_service import delete_upload_file
+from scripts.smoke_test import make_pdf
 
 EMAIL = "owner@example.com"
 PASSWORD = "correct horse battery staple"
 SENTENCE = " ".join(f"word{i}" for i in range(40))  # 40 words: enough for one chunk
-
-
-def make_pdf(text: str) -> bytes:
-    """A minimal one-page PDF showing `text` in Helvetica, with correct byte offsets."""
-    stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
-    objects = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R "
-        b"/Resources << /Font << /F1 5 0 R >> >> >>",
-        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    ]
-    pdf = bytearray(b"%PDF-1.4\n")
-    offsets = []
-    for number, body in enumerate(objects, start=1):
-        offsets.append(len(pdf))
-        pdf += f"{number} 0 obj\n".encode() + body + b"\nendobj\n"
-    xref_offset = len(pdf)
-    pdf += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
-    pdf += b"".join(f"{offset:010d} 00000 n \n".encode() for offset in offsets)
-    pdf += f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode()
-    return bytes(pdf)
 
 
 @pytest.fixture

@@ -4,7 +4,6 @@ services:
     image: pgvector/pgvector:pg16
     # PostgreSQL 16 with the pgvector extension, which adds the vector column
     # type and the <=> cosine distance operator that search uses.
-    # Only the database runs in Docker; start the API with uvicorn (see README).
 
     container_name: documind_db
     # A friendly name so we can identify this container
@@ -20,9 +19,11 @@ services:
     ports:
       - "5432:5432"
       # Format: "host_port:container_port"
-      # PostgreSQL runs on port 5432 inside the container
-      # and is exposed on localhost:5432. If another PostgreSQL already listens
-      # on 5432 on this machine, connections to localhost may reach it instead.
+      # Exposed on localhost:5432 for the tests and for running the API with
+      # uvicorn on the host. The api service below does not need it: it
+      # reaches the database as "db" on Docker's network. If another PostgreSQL
+      # already listens on 5432 on this machine, connections to localhost from
+      # the host may reach it instead.
 
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -34,10 +35,44 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-      # Docker marks the container healthy once Postgres accepts connections
-      # (visible in `docker compose ps`). Nothing else waits on it.
+      # Docker marks the container healthy once Postgres accepts connections.
+      # The api service waits for that before it starts.
+
+  # The DocuMind API, built from backend/Dockerfile
+  api:
+    build: ./backend
+    container_name: documind_api
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+    env_file:
+      - backend/.env
+      # SECRET_KEY and the LLM settings, read when the container starts and
+      # never built into the image. Copy backend/.env.example to create it.
+      # If it is missing, starting the api service stops with an error naming
+      # the file; `docker compose up -d db` alone does not need it.
+
+    environment:
+      DATABASE_URL: postgresql://documind_user:documind_pass@db:5432/documind
+      # Overrides any DATABASE_URL in backend/.env: inside Docker the database
+      # is the "db" service, not localhost.
+
+    ports:
+      - "8000:8000"
+
+    volumes:
+      - uploads:/app/uploads
+      # Uploaded PDFs survive container rebuilds
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
 volumes:
   postgres_data:
-  # Defines the named volume used above
-  # Docker manages this storage automatically
+  uploads:
+  # Named volumes; Docker manages this storage automatically

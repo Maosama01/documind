@@ -49,3 +49,29 @@ jobs:
 
       - name: Run tests
         run: pytest
+
+  docker:
+    # Builds the API image and starts the stack exactly as docker-compose.yml
+    # describes, then drives it end to end: sign up, upload a PDF, wait for
+    # processing, ask a question.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Create backend/.env with a throwaway SECRET_KEY
+        run: python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))" > backend/.env
+
+      - name: Build and start the stack
+        run: docker compose up --build --wait
+
+      - name: Smoke test
+        run: python3 backend/scripts/smoke_test.py http://localhost:8000
+
+      - name: Show container logs
+        if: failure()
+        run: docker compose logs
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down --volumes

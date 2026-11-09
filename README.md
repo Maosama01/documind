@@ -72,9 +72,38 @@ A document that is not yours returns 404, as if it did not exist. `POST /query/`
 document is still processing and 502 if the LLM provider fails. Example requests for most endpoints
 are in the Bruno collection in `bruno/DocuMind API/`.
 
-## Running it locally
+## Running it
 
-You need Python 3.13 and Docker.
+### With Docker (the whole app)
+
+You need Docker. Create `backend/.env` from the example and set `SECRET_KEY` in it (generate one with
+`python3 -c "import secrets; print(secrets.token_hex(32))"`):
+
+```bash
+git clone https://github.com/Maosama01/documind.git
+cd documind
+cp backend/.env.example backend/.env
+```
+
+Then build and start PostgreSQL and the API together:
+
+```bash
+docker compose up --build
+```
+
+The API is on `http://localhost:8000` once both containers report healthy. Without `backend/.env`,
+starting the API stops with an error naming the file. The image installs the Python packages and
+downloads the embedding model at build time, so the container never contacts the Hugging Face hub.
+It runs as an unprivileged user and keeps uploads in a named volume. Measured on an Apple-silicon
+Mac, the first build took about 5 minutes and the image is 2.05 GB unpacked: 1.33 GB of Python
+packages (mostly torch), 92 MB of model, and the Python base image.
+
+To check a running stack end to end (sign up, upload, process, ask), run
+`python3 backend/scripts/smoke_test.py`; it needs only Python's standard library.
+
+### On the host (for development and the tests)
+
+You need Python 3.13 and Docker for the database.
 
 ```bash
 git clone https://github.com/Maosama01/documind.git
@@ -82,8 +111,8 @@ cd documind
 docker compose up -d db
 ```
 
-Docker runs only PostgreSQL with pgvector, on `localhost:5432`. If another PostgreSQL already listens
-on port 5432, `localhost` may reach that one instead; stop it first.
+This starts only PostgreSQL with pgvector, on `localhost:5432`. If another PostgreSQL already
+listens on port 5432, `localhost` may reach that one instead; stop it first.
 
 ```bash
 cd backend
@@ -100,10 +129,12 @@ because `.env` and `uploads/` are found relative to the current directory:
 .venv/bin/uvicorn app.main:app
 ```
 
-On startup the app creates the `vector` extension, the tables, the `document_id` index and the
-`error_message` column if they are missing, and marks any document an earlier run left unfinished
-as `failed`. The first upload downloads the embedding model (about 90 MB) into the Hugging Face
+Run this way, the first upload downloads the embedding model (about 90 MB) into the Hugging Face
 cache.
+
+Either way, on startup the app creates the `vector` extension, the tables, the `document_id` index
+and the `error_message` column if they are missing, and marks any document an earlier run left
+unfinished as `failed`.
 
 A full round trip with curl:
 
@@ -188,8 +219,11 @@ the `db` tests are skipped and pytest prints why; with `REQUIRE_TEST_DB=1` they 
 calls a real LLM or downloads the embedding model: provider calls go through a fake HTTP layer and
 embeddings are hand-made vectors.
 
-GitHub Actions (`.github/workflows/tests.yml`) runs the whole suite on every push and pull request,
-on Python 3.13 with a `pgvector/pgvector:pg16` service and `REQUIRE_TEST_DB=1`.
+GitHub Actions (`.github/workflows/tests.yml`) runs two jobs on every push and pull request:
+- **pytest**: the whole suite on Python 3.13 with a `pgvector/pgvector:pg16` service and
+  `REQUIRE_TEST_DB=1`.
+- **docker**: builds the image, starts the stack with `docker compose up --build --wait`, and runs
+  `backend/scripts/smoke_test.py` against it.
 
 ## Evaluation
 
@@ -228,8 +262,8 @@ is most of the document.
 
 - **OCR.** Text comes from pypdf only. Scanned pages have no text and are skipped; a PDF with no text
   at all ends as `failed`.
-- **Deployment.** No Dockerfile for the API and no hosting: Docker Compose runs only PostgreSQL, and
-  uploads are stored on the local disk.
+- **Hosting.** The Docker image runs on any machine with Docker, but nothing deploys it anywhere: no
+  image registry, no cloud setup, no HTTPS. Uploads live on local disk (a named volume in Docker).
 - **Migrations.** Tables are created with SQLAlchemy `create_all`, which never changes an existing
   table. The two later additions (an index and the `error_message` column) are applied at startup
   with SQL that is safe to run every time; there are no versioned migrations.
@@ -251,7 +285,7 @@ is most of the document.
 ## Tech stack
 
 Python 3.13, FastAPI, SQLAlchemy 2, PostgreSQL 16 with pgvector, pypdf, sentence-transformers
-(`all-MiniLM-L6-v2`), httpx, python-jose, passlib with bcrypt, pytest, GitHub Actions.
+(`all-MiniLM-L6-v2`), httpx, python-jose, passlib with bcrypt, pytest, Docker, GitHub Actions.
 
 ## Author
 

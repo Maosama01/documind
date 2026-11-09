@@ -1,0 +1,13 @@
+# Only requirements.txt and app/ are copied into the image; this keeps
+# everything else, and above all secrets and user files, out of the build.
+.env
+.env.*
+uploads/
+.venv/
+venv/
+tests/
+data/
+scripts/
+.pytest_cache/
+**/__pycache__/
+*.py[cod]

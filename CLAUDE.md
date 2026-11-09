@@ -173,6 +173,18 @@ for readers, so update both places when one is fixed):
   The overlap is now "as many trailing words as fit in 40 tokens and leave room for the next word",
   not an exact word count. Pages under `MIN_PAGE_WORDS` (20) are still skipped, checked before the
   model loads so a scanned PDF reports "no text" even when the model is missing.
+- [x] **Phase 9, Docker** (committed 2026-11-09; 185 tests pass against pgvector, 51 marked db, plus
+  a real stack run). `backend/Dockerfile` (python:3.13-slim, CPU torch, MiniLM
+  downloaded at build, then `HF_HUB_OFFLINE=1`, non-root uid 1000) and `.dockerignore` (keeps
+  `.env`, uploads, venv, tests out). Compose `api` service waits for a healthy db, reads secrets
+  from `backend/.env` (required: starting api without it errors; `up -d db` alone still works,
+  checked on Compose 5.3.0), overrides `DATABASE_URL` to `db:5432`, stores uploads in a named
+  volume, has a /health healthcheck. CI job "docker" runs `docker compose up --build --wait` and
+  `backend/scripts/smoke_test.py` (stdlib only; `make_pdf` there is shared with the route tests).
+  Measured on Apple silicon (arm64): build about 5 min; image 2.05 GB unpacked (pip layer 1.33 GB,
+  model 92 MB, app 152 kB), about 474 MB compressed; stack healthy in 14 s; smoke test passed. To
+  verify without touching the user's dev volume, use another Compose project
+  (`-p documind-verify`) with an override that renames the containers.
 - [x] **Follow-up, Swagger login** (2026-11-09): `POST /auth/token` takes the OAuth2 password form
   (`username` = email) and the bearer scheme's `tokenUrl` points to it, so Swagger's Authorize
   button works; JSON `/auth/login` is unchanged; `/auth/me` uses `get_current_user` instead of its
