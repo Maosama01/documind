@@ -63,6 +63,24 @@ def create_embeddings_batch(texts: List[str]) -> List[List[float]]:
 
     return [emb.tolist() for emb in embeddings]
 
+def count_over_token_limit(texts: List[str]) -> int:
+    """
+    Count how many texts are longer than the model's token limit.
+
+    The limit is the model's max_seq_length: 256 tokens for all-MiniLM-L6-v2,
+    including the [CLS] and [SEP] tokens the tokenizer adds. encode() cuts off
+    everything past it, so the end of an over-limit text is not in its embedding.
+    Uses the model's own tokenizer, so the count is measured, not estimated.
+    """
+    if not texts:
+        return 0
+    model = get_model()
+    limit = model.max_seq_length
+    # verbose=False: the tokenizer otherwise warns for every text over 512 tokens
+    token_ids = model.tokenizer(texts, verbose=False)["input_ids"]
+    return sum(1 for ids in token_ids if len(ids) > limit)
+
+
 def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
     """
     Calculate how similar two vectors are.

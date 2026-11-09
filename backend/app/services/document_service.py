@@ -1,11 +1,19 @@
+import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List
+from app.config import settings
 from app.models.document import Document
 from app.models.chunk import Chunk
 from app.services.pdf_service import extract_text_from_pdf, get_pdf_metadata, get_file_size
-from app.services.chunking_service import split_text_into_chunks
-from app.services.embedding_service import create_embeddings_batch, create_embedding
+from app.services.chunking_service import MIN_CHUNK_WORDS, split_text_into_chunks
+from app.services.embedding_service import (
+    count_over_token_limit,
+    create_embeddings_batch,
+    create_embedding
+)
+
+logger = logging.getLogger(__name__)
 
 def process_document(db: Session, document_id: int, file_path: str) -> Document:
     """
@@ -41,7 +49,12 @@ def process_document(db: Session, document_id: int, file_path: str) -> Document:
         db.commit()
         
         # Step 4: Split into chunks
-        chunks_data = split_text_into_chunks(pages, chunk_size=500, chunk_overlap=50)
+        chunks_data = split_text_into_chunks(
+            pages,
+            chunk_size=settings.CHUNK_SIZE_WORDS,
+            chunk_overlap=settings.CHUNK_OVERLAP_WORDS,
+            min_chunk_words=MIN_CHUNK_WORDS
+        )
         
         if not chunks_data:
             document.status = "failed"
@@ -51,6 +64,17 @@ def process_document(db: Session, document_id: int, file_path: str) -> Document:
         # Step 5: Create embeddings for ALL chunks at once (batch processing)
         # This is much faster than embedding one chunk at a time
         chunk_texts = [chunk["content"] for chunk in chunks_data]
+
+        # Word-based chunk sizes only estimate the token count, so measure it:
+        # text past the model's token limit is not embedded and cannot be found.
+        over_limit = count_over_token_limit(chunk_texts)
+        if over_limit:
+            logger.warning(
+                "Document %s: %d of %d chunks exceed the embedding model's token "
+                "limit; the text past the limit is not embedded",
+                document_id, over_limit, len(chunk_texts)
+            )
+
         print(f"Creating embeddings for {len(chunk_texts)} chunks...")
         embeddings = create_embeddings_batch(chunk_texts)
         print("Embeddings created successfully!")

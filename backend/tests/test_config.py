@@ -29,6 +29,28 @@ def test_debug_defaults_to_false(monkeypatch):
     assert Settings(_env_file=None).DEBUG is False
 
 
+def test_chunk_settings_default_to_180_and_30(monkeypatch):
+    monkeypatch.delenv("CHUNK_SIZE_WORDS", raising=False)
+    monkeypatch.delenv("CHUNK_OVERLAP_WORDS", raising=False)
+    loaded = Settings(_env_file=None)
+    assert (loaded.CHUNK_SIZE_WORDS, loaded.CHUNK_OVERLAP_WORDS) == (180, 30)
+
+
+def test_chunk_settings_can_be_set_from_the_environment(monkeypatch):
+    monkeypatch.setenv("CHUNK_SIZE_WORDS", "120")
+    monkeypatch.setenv("CHUNK_OVERLAP_WORDS", "25")
+    loaded = Settings(_env_file=None)
+    assert (loaded.CHUNK_SIZE_WORDS, loaded.CHUNK_OVERLAP_WORDS) == (120, 25)
+
+
+@pytest.mark.parametrize("size,overlap", [("180", "10"), ("180", "180"), ("100", "150")])
+def test_app_refuses_unsafe_chunk_settings(monkeypatch, size, overlap):
+    monkeypatch.setenv("CHUNK_SIZE_WORDS", size)
+    monkeypatch.setenv("CHUNK_OVERLAP_WORDS", overlap)
+    with pytest.raises(ValidationError, match="chunk overlap"):
+        Settings(_env_file=None)
+
+
 def test_fastapi_debug_follows_the_setting():
     from app.main import app
 

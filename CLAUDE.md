@@ -40,7 +40,8 @@ code for a phase, list the files to be touched and ask all questions in one batc
 
 ## Known state (verified by audit, do not re-derive)
 
-- pypdf extraction per page; word-based chunking 500/50 in `chunking_service.py`;
+- pypdf extraction per page; word-based chunking 500/50 in `chunking_service.py` (Phase 2: now
+  180/30 from settings);
   all-MiniLM-L6-v2 embeddings (384 dims) in a pgvector `Vector(384)` column; search orders by
   `Chunk.embedding.op("<=>")` with no index; python-jose HS256 JWT, 30 min; upload uses FastAPI
   `BackgroundTasks`; `docker-compose.yml` runs only `pgvector/pgvector:pg16`.
@@ -51,6 +52,9 @@ code for a phase, list the files to be touched and ask all questions in one batc
   - Chunk→Document has no cascade, so deleting a processed document raises `IntegrityError`.
   - No `CREATE EXTENSION vector` anywhere.
   - 500-word chunks exceed MiniLM's 256-token window, so chunk tails are silently truncated.
+    (Phase 2: measured on the one local PDF, 2 of 3 500-word chunks were over, at 565 and 660
+    tokens; at 180 words 0 of 7 were over, the largest at 255. Still word-based, so dense text can
+    exceed 256; `process_document` logs how many chunks do.)
   - A user PDF is committed under `backend/uploads/`.
   - Zero tests, no CI.
   - README claims AWS, React, Ollama and GitHub Actions that do not exist.
@@ -88,7 +92,9 @@ Still open (not in any phase yet):
   `UserLogin`, add cascade delete (`ondelete="CASCADE"` + `delete-orphan`), run
   `CREATE EXTENSION IF NOT EXISTS vector` before `create_all`. Add `pytest.ini` with
   `pythonpath = .` and a conftest that sets a test `SECRET_KEY`.
-- [ ] **Phase 2, chunking:** chunk size and overlap become settings (default 180/30 words) with a
+- [x] **Phase 2, chunking** (committed 2026-11-09; 55 tests pass against pgvector).
+  Decisions: overlap must be >= `MIN_CHUNK_WORDS` (20) and < size or the app refuses to start;
+  pages under 20 words are skipped; `split_text_simple` (unused) deleted. Spec: chunk size and overlap become settings (default 180/30 words) with a
   comment explaining the 256-token limit. Tests: overlap shared between neighbours, nothing lost at
   the end, chunks never cross pages, tiny tails dropped.
 - [ ] **Phase 3, generation:** new `services/llm_service.py` with `build_prompt` (sources labelled

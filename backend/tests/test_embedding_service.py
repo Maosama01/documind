@@ -19,14 +19,23 @@ import app.services.embedding_service as embedding_service
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 
+class FakeTokenizer:
+    """One token per word, plus [CLS] and [SEP], like a real BERT tokenizer adds."""
+
+    def __call__(self, texts, verbose=True):
+        return {"input_ids": [[0] * (len(text.split()) + 2) for text in texts]}
+
+
 class FakeSentenceTransformer:
     instances = 0
     load_seconds = 0.0
+    max_seq_length = 256
 
     def __init__(self, name):
         time.sleep(self.load_seconds)
         type(self).instances += 1
         self.name = name
+        self.tokenizer = FakeTokenizer()
 
     def encode(self, texts, **kwargs):
         if isinstance(texts, list):
@@ -67,6 +76,22 @@ def test_model_loads_once_and_is_reused(monkeypatch):
     assert embedding_service.get_model().name == embedding_service.MODEL_NAME
     assert len(single) == 384
     assert [len(vector) for vector in batch] == [384, 384]
+
+
+def test_count_over_token_limit_counts_texts_longer_than_max_seq_length(monkeypatch):
+    use_fake_model(monkeypatch)
+    fits = " ".join(["word"] * 254)      # 254 + [CLS] + [SEP] = 256 tokens: fits exactly
+    too_long = " ".join(["word"] * 255)  # 257 tokens: one past the limit
+
+    assert embedding_service.count_over_token_limit([fits, too_long, fits, too_long]) == 2
+    assert embedding_service.count_over_token_limit([fits]) == 0
+
+
+def test_count_over_token_limit_does_not_load_the_model_for_no_texts(monkeypatch):
+    use_fake_model(monkeypatch)
+
+    assert embedding_service.count_over_token_limit([]) == 0
+    assert FakeSentenceTransformer.instances == 0
 
 
 def test_concurrent_first_calls_load_the_model_once(monkeypatch):
