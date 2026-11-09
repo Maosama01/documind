@@ -137,11 +137,21 @@ Still open (not in any phase yet):
 - [x] **Phase 4, index and CI** (committed 2026-11-09; 104 tests pass locally and in a Linux
   container running the workflow's steps). Decisions: btree index on
   `chunks.document_id` instead of HNSW (measured, see above); CI sets `REQUIRE_TEST_DB=1` so an
-  unreachable database fails the run; CI installs CPU-only torch from PyTorch's index. The workflow
-  has not run on GitHub yet. Spec was: `CREATE INDEX IF NOT EXISTS … USING hnsw (embedding
+  unreachable database fails the run; CI installs CPU-only torch from PyTorch's index. First GitHub
+  run (id 42599895463, commit 6586d8d, 2026-11-09) passed: 104 tests, torch 2.12.0+cpu, no NVIDIA
+  packages. Git pushes now authenticate through `gh` (`gh auth setup-git`), whose token has the
+  `workflow` scope needed to change files under `.github/workflows/`. Spec was: `CREATE INDEX IF NOT EXISTS … USING hnsw (embedding
   vector_cosine_ops)` at startup; `.github/workflows/tests.yml` running pytest on push and
   pull_request.
-- [ ] **Phase 5, evaluation:** `scripts/eval_retrieval.py` takes a JSONL golden set (question,
+- [x] **Phase 5, evaluation** (committed 2026-11-09; 129 tests pass against pgvector).
+  Decisions: files live in `backend/scripts/` and `backend/data/` (run
+  `cd backend && .venv/bin/python -m scripts.eval_retrieval data/golden.jsonl`); recall@k = mean per
+  question of expected pages found in the pages of the top-k chunks / expected pages, plus hit@k;
+  rows with `"example": true` are refused; real golden sets are gitignored; faithfulness prints
+  RESULT PENDING, no LLM calls. The README result stays RESULT PENDING until the user runs it on a
+  real, long document. A CLI smoke run with the real model on the 2-page local PDF and 2 questions
+  written by Claude worked (1.00/1.00, meaningless at 7 chunks; not a result). Spec was:
+  `scripts/eval_retrieval.py` takes a JSONL golden set (question,
   document_id, expected_pages) and reports recall@5 and a faithfulness placeholder;
   `data/golden.example.jsonl` holds the format and 3 rows marked as examples; the README section
   says RESULT PENDING until the user runs it on a real document.

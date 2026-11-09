@@ -23,3 +23,8 @@ uploads/
 
 # Test cache
 .pytest_cache/
+
+# Real golden sets: they name local document IDs and contain your own questions.
+# Only the format example is committed.
+backend/data/*.jsonl
+!backend/data/golden.example.jsonl
