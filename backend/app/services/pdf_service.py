@@ -5,7 +5,8 @@ from pypdf import PdfReader
 from typing import List, Dict
 from fastapi import UploadFile
 
-# Local uploads folder — temporary storage before we add S3
+# Uploaded PDFs are stored here, relative to the directory the server runs
+# from (backend/ when started as the README describes). This is the only storage.
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 # exist_ok=True means: create the folder if it doesn't exist,

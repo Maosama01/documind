@@ -63,7 +63,9 @@ code for a phase, list the files to be touched and ask all questions in one batc
     exceed 256; `process_document` logs how many chunks do.)
   - A user PDF is committed under `backend/uploads/`.
   - Zero tests, no CI. (Tests since Phase 1; CI in `.github/workflows/tests.yml` since Phase 4.)
-  - README claims AWS, React, Ollama and GitHub Actions that do not exist.
+  - README claims AWS, React, Ollama and GitHub Actions that do not exist. (Fixed in Phase 6;
+    `tests/test_docs.py` keeps the README's endpoint and settings tables in sync with the app and
+    fails if AWS, S3, EC2, React, Ollama or LLaMA reappear.)
 
 ## Additional findings (2026-11-09)
 
@@ -79,12 +81,12 @@ Resolved in Phase 1:
 - Root `requirements.txt` (bcrypt 5.0.0 + passlib 1.7.4) was deleted; `backend/requirements.txt`
   is the only one, plus `backend/requirements-dev.txt` for pytest.
 
-Still open (not in any phase yet):
+Still open (not in any phase; the README's "Not built yet" and "Known issues" sections list them
+for readers, so update both places when one is fixed):
 - `upload_document` hands the request-scoped DB session (closed by `get_db`) to the background task.
 - `delete_document` does not delete the PDF from disk (its docstring now says so).
 - Swagger's Authorize button cannot log in: `OAuth2PasswordBearer(tokenUrl="/auth/login")` makes it
   send form fields `username`/`password`, but `/auth/login` takes JSON `{email, password}`.
-- `backend/requirements.txt` includes `boto3`, which no code uses (README claims S3; Phase 6).
 - `datetime.utcnow()` in `auth_service.py` and class-based pydantic `Config` in schemas are
   deprecated (warnings in pytest output).
 - No migrations: `create_all` never alters an existing table, so schema changes reach an old
@@ -155,5 +157,8 @@ Still open (not in any phase yet):
   document_id, expected_pages) and reports recall@5 and a faithfulness placeholder;
   `data/golden.example.jsonl` holds the format and 3 rows marked as examples; the README section
   says RESULT PENDING until the user runs it on a real document.
-- [ ] **Phase 6, README:** rewrite to describe exactly what the code does, how to run it, and what
+- [x] **Phase 6, README** (committed 2026-11-09; 137 tests pass against pgvector).
+  Also fixed 7 outdated comments (S3, "Week N", frontend, compose health check) and removed the
+  unused boto3, botocore, s3transfer, jmespath, python-dateutil and urllib3 from requirements.
+  Spec was: rewrite to describe exactly what the code does, how to run it, and what
   is still missing (OCR, token-based chunking, deployment).

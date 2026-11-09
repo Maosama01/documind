@@ -29,7 +29,7 @@ class User(Base):
     # Allows disabling accounts without deleting them
     
     is_verified = Column(Boolean, default=False)
-    # For email verification (we'll add this later)
+    # Not used: there is no email verification
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     # server_default=func.now() → PostgreSQL automatically sets

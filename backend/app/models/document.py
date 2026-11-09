@@ -18,8 +18,9 @@ class Document(Base):
     # Original filename when uploaded
     
     s3_key = Column(String, nullable=True)
-    # Where the file is stored in AWS S3 (Week 6)
-    # Nullable for now since we don't have S3 yet
+    # Not used: nothing stores files in S3. Uploaded PDFs are saved to the
+    # local uploads/ folder (see pdf_service.py). The column stays so existing
+    # databases still match the model; there are no migrations to drop it.
     
     file_size = Column(Integer, nullable=True)
     # Size in bytes

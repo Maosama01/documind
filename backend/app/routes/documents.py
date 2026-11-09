@@ -123,7 +123,7 @@ def get_document_status(
 ):
     """
     Check processing status of a document.
-    Frontend polls this endpoint after upload to know when processing is done.
+    Poll this endpoint after uploading to know when processing is done.
     """
     document = get_document_by_id(db, document_id, current_user.id)
     if not document:
@@ -157,8 +157,8 @@ def search_document(
     ?q=your question here
     ?top_k=5 (how many chunks to return)
     
-    This is the retrieval part of RAG.
-    Week 4 we add the generation part (LLM answers).
+    This is the retrieval part of RAG; POST /query/ adds answer
+    generation on top of it.
     """
     document = get_document_by_id(db, document_id, current_user.id)
     if not document:
