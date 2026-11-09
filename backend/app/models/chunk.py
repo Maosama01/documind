@@ -27,12 +27,19 @@ class Chunk(Base):
     # 384 is the dimension of all-MiniLM-L6-v2 embeddings
     # This is what makes semantic search possible
     
-    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
-    # Every chunk belongs to a document
-    
-    document = relationship("Document", backref="chunks")
+    document_id = Column(
+        Integer,
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    # Every chunk belongs to a document.
+    # ondelete="CASCADE" puts ON DELETE CASCADE on the foreign key in Postgres,
+    # so deleting a document row deletes its chunks even outside SQLAlchemy
+    # (e.g. a raw SQL DELETE).
+
+    document = relationship("Document", back_populates="chunks")
     # chunk.document → gives you the parent Document
-    # document.chunks → gives you all chunks for that document
+    # The other side (Document.chunks) is defined in document.py
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     

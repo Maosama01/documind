@@ -1,22 +1,30 @@
+from contextlib import asynccontextmanager
+
 # pyrefly: ignore [missing-import]
 from fastapi import FastAPI
 # pyrefly: ignore [missing-import]
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import engine, Base
+from app.config import settings
+from app.database import init_db
 from app.routes import documents, query, auth
-import app.models.user      # Must import so SQLAlchemy knows about these models
-import app.models.document   # before calling create_all()
 
-# Create all database tables automatically
-# SQLAlchemy reads all models that inherited from Base
-# and creates their tables in PostgreSQL if they don't exist
-# This is safe to run every time — it skips tables that already exist
-Base.metadata.create_all(bind=engine)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Runs once when the server starts, before it accepts requests:
+    # creates the pgvector extension, then any missing tables.
+    # It used to run at import time, which meant nothing (including tests)
+    # could import this module without a live database.
+    init_db()
+    yield
+
 
 app = FastAPI(
     title="DocuMind API",
     description="AI-powered document intelligence platform",
-    version="1.0.0"
+    version="1.0.0",
+    debug=settings.DEBUG,
+    lifespan=lifespan
 )
 
 app.add_middleware(

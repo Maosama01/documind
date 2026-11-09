@@ -1,4 +1,5 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 from app.config import settings
@@ -25,6 +26,30 @@ SessionLocal = sessionmaker(
 # Base is the parent class all our database models will inherit from
 # SQLAlchemy uses it to track all models and create tables
 Base = declarative_base()
+
+
+def init_db(bind: Engine = engine) -> None:
+    """
+    Prepare the database at startup: pgvector extension first, then tables.
+
+    Order matters: chunks.embedding is a vector(384) column, and Postgres
+    rejects the vector type until the extension exists in this database.
+    Both statements run in one transaction, so a failure leaves nothing
+    half-created.
+
+    create_all only creates tables that are missing. It never alters an
+    existing table, so a schema change (like the ON DELETE CASCADE on
+    chunks.document_id) reaches an existing database only after the table
+    is recreated. There are no migrations yet.
+
+    CREATE EXTENSION needs a role allowed to create extensions; the
+    docker-compose user is a superuser, so it works locally.
+    """
+    import app.models  # noqa: F401  registers User, Document and Chunk on Base.metadata
+
+    with bind.begin() as connection:
+        connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        Base.metadata.create_all(bind=connection)
 
 
 # This is a "dependency" — FastAPI will call this function

@@ -195,13 +195,17 @@ def delete_document(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Delete a document and all its chunks"""
+    """
+    Delete a document and all its chunks.
+
+    The uploaded PDF file is not removed from disk yet.
+    """
     document = get_document_by_id(db, document_id, current_user.id)
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
-    
-    # SQLAlchemy will cascade delete the chunks too
-    # because of the relationship we defined
+
+    # Chunks are deleted too: Document.chunks has cascade="all, delete-orphan",
+    # and chunks.document_id has ON DELETE CASCADE in the database.
     db.delete(document)
     db.commit()
     

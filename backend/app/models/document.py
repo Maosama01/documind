@@ -47,7 +47,18 @@ class Document(Base):
     # document.owner → gives you the User object
     # user.documents → gives you all documents for that user
     # backref="documents" creates the reverse relationship automatically
-    
+
+    chunks = relationship(
+        "Chunk",
+        back_populates="document",
+        cascade="all, delete-orphan"
+    )
+    # document.chunks → gives you all chunks for that document
+    # cascade="all, delete-orphan": db.delete(document) also deletes its chunks,
+    # and a chunk removed from document.chunks is deleted instead of being left
+    # with no parent. SQLAlchemy loads and deletes the chunks itself, so this works
+    # even on a database whose foreign key was created before ON DELETE CASCADE.
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from datetime import timedelta
 from app.database import get_db
-from app.schemas.user import UserCreate, UserResponse
+from app.schemas.user import UserCreate, UserLogin, UserResponse
 from app.schemas.token import Token
 from app.services.auth_service import (
     create_user,
@@ -47,9 +47,9 @@ def signup(user_data: UserCreate, db: Session = Depends(get_db)):
     return user
 
 @router.post("/login", response_model=Token)
-def login(user_data: UserCreate, db: Session = Depends(get_db)):
+def login(user_data: UserLogin, db: Session = Depends(get_db)):
     """
-    Login with email and password.
+    Login with email and password (JSON body: {"email", "password"}).
     
     - Verifies credentials
     - Returns a JWT access token

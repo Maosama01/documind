@@ -17,3 +17,9 @@ env/
 
 # Logs
 *.log
+
+# Uploaded user files (never commit user documents)
+uploads/
+
+# Test cache
+.pytest_cache/
