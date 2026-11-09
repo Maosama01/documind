@@ -28,3 +28,12 @@ uploads/
 # Only the format example is committed.
 backend/data/*.jsonl
 !backend/data/golden.example.jsonl
+
+# Frontend build output and tooling
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+
+# Working files of the design skill (direction sheet, inspector screenshots)
+.taste-skill/

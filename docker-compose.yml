@@ -72,6 +72,26 @@ services:
       timeout: 5s
       retries: 12
 
+  # The web app, built from frontend/Dockerfile: nginx serves it on
+  # http://localhost:3000 and forwards /api to the api service.
+  web:
+    build: ./frontend
+    container_name: documind_web
+
+    depends_on:
+      api:
+        condition: service_healthy
+
+    ports:
+      - "3000:80"
+      # The Vite dev server (npm run dev) also uses 3000: run one or the other.
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
 volumes:
   postgres_data:
   uploads:

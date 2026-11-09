@@ -2,13 +2,14 @@
 
 [![tests](https://github.com/Maosama01/documind/actions/workflows/tests.yml/badge.svg)](https://github.com/Maosama01/documind/actions/workflows/tests.yml)
 
-A FastAPI backend that answers questions about your own PDFs. You upload a PDF; the API splits it
-into chunks, embeds them with a local sentence-transformer model, and stores them in PostgreSQL with
-pgvector. When you ask a question, it retrieves the most similar chunks from that document and
-returns an answer that cites its pages as `[p.N]`, written by Gemini, by Claude, or (with no API key)
-by an extractive fallback that quotes the document's own sentences.
+A web app and FastAPI backend that answer questions about your own PDFs. You upload a PDF; the API
+splits it into chunks, embeds them with a local sentence-transformer model, and stores them in
+PostgreSQL with pgvector. When you ask a question, it retrieves the most similar chunks from that
+document and returns an answer that cites its pages as `[p.N]`, written by Gemini, by Claude, or
+(with no API key) by an extractive fallback that quotes the document's own sentences. In the web
+app, each citation opens that page of the PDF beside the answer.
 
-It is an API only: there is no frontend and no deployment. The sections below describe what the code
+It runs locally with Docker; nothing deploys it anywhere. The sections below describe what the code
 does today and what is still missing.
 
 ## What it does
@@ -27,8 +28,44 @@ does today and what is still missing.
 - **Answers:** `POST /query/` retrieves the top chunks and asks the configured provider to answer
   only from them, citing pages, or to reply exactly `Not found in the document.`. The response says
   which provider answered and whether the answer is `grounded` (see Design decisions).
+- **Web app** (`frontend/`): sign in, upload and manage documents, ask questions, and check each
+  answer against the PDF itself (see Web app).
 - **Evaluation:** a script measures retrieval recall on a hand-written question set (no result yet,
   see Evaluation).
+
+## Web app
+
+React and TypeScript, built with Vite and served by nginx at `http://localhost:3000`. nginx forwards
+`/api` to the API, so the browser talks to one origin.
+
+- **Documents:** upload by button or drag and drop (checked for type and size before sending); each
+  document's status refreshes while it is being read, and a failed one shows why; delete asks first
+  and names the document.
+- **A document:** ask a question; the answer's citations are links that open that page of the PDF in
+  a viewer beside it (on a phone, in the browser's own PDF viewer). Each answer shows whether it is
+  grounded, in words, which model answered (the extractive fallback says so), a strip of the
+  document's pages marking which were cited, which were read but not cited, and any cited page that
+  was never read, and the passages read, most similar first.
+- **One colour, one meaning.** The interface is ink and greys; a single blue marks where an answer
+  came from: citations, cited pages, cited passages, the page in the viewer.
+- **Questions are kept in the browser tab only** (sessionStorage): they survive a reload and are gone
+  when the tab closes or you sign out. The API does not store them.
+- **The sign-in token** is kept in sessionStorage too, so any script on the page could read it; nginx
+  sends a Content-Security-Policy that only allows scripts from the app's own origin.
+- **Types from the API.** `frontend/src/api/schema.d.ts` is generated from the API's OpenAPI schema
+  (`backend/scripts/export_openapi.py`, then `npm run api:types`); CI fails if either is out of
+  date, so a backend change that breaks the frontend shows up as a type error.
+
+To work on it with live reloading, run the API on the host (below), then:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+The dev server is on `http://localhost:3000` and forwards `/api` to `http://127.0.0.1:8000`; stop the
+`web` container first, since both use port 3000. It needs Node 22.13 or newer.
 
 ## How a question is answered
 
@@ -63,6 +100,7 @@ you. Other clients send it as `Authorization: Bearer <token>`.
 | `POST` | `/documents/upload` | yes | Upload a PDF (multipart field `file`); processing runs in the background |
 | `GET` | `/documents/` | yes | Your documents |
 | `GET` | `/documents/{document_id}` | yes | One of your documents |
+| `GET` | `/documents/{document_id}/file` | yes | The uploaded PDF, sent inline so a browser can show it |
 | `GET` | `/documents/{document_id}/status` | yes | `pending`, `processing`, `processed` or `failed`, with `error_message` saying why it failed |
 | `GET` | `/documents/{document_id}/search` | yes | `?q=...&top_k=5`: the closest chunks of a processed document |
 | `DELETE` | `/documents/{document_id}` | yes | Delete a document, its chunks and its PDF file |
@@ -85,13 +123,14 @@ cd documind
 cp backend/.env.example backend/.env
 ```
 
-Then build and start PostgreSQL and the API together:
+Then build and start PostgreSQL, the API and the web app together:
 
 ```bash
 docker compose up --build
 ```
 
-The API is on `http://localhost:8000` once both containers report healthy. Without `backend/.env`,
+Open `http://localhost:3000` once the three containers report healthy; the API itself is also on
+`http://localhost:8000`. Without `backend/.env`,
 starting the API stops with an error naming the file. The image installs the Python packages and
 downloads the embedding model at build time, so the container never contacts the Hugging Face hub.
 It runs as an unprivileged user and keeps uploads in a named volume. Measured on an Apple-silicon
@@ -99,7 +138,8 @@ Mac, the first build took about 5 minutes and the image is 2.05 GB unpacked: 1.3
 packages (mostly torch), 92 MB of model, and the Python base image.
 
 To check a running stack end to end (sign up, upload, process, ask), run
-`python3 backend/scripts/smoke_test.py`; it needs only Python's standard library.
+`python3 backend/scripts/smoke_test.py http://localhost:3000/api`; it needs only Python's standard
+library.
 
 ### On the host (for development and the tests)
 
@@ -202,7 +242,7 @@ Each decision has a longer explanation next to the code it describes.
 
 ## Tests
 
-The tests live in `backend/tests/` and run with pytest from `backend/`. Tests marked `db` need a
+**Backend.** The tests live in `backend/tests/` and run with pytest from `backend/`. Tests marked `db` need a
 PostgreSQL with pgvector; they use a separate database whose name must end in `_test`, which they
 create and empty.
 
@@ -219,11 +259,34 @@ the `db` tests are skipped and pytest prints why; with `REQUIRE_TEST_DB=1` they 
 calls a real LLM or downloads the embedding model: provider calls go through a fake HTTP layer and
 embeddings are hand-made vectors.
 
-GitHub Actions (`.github/workflows/tests.yml`) runs two jobs on every push and pull request:
-- **pytest**: the whole suite on Python 3.13 with a `pgvector/pgvector:pg16` service and
-  `REQUIRE_TEST_DB=1`.
-- **docker**: builds the image, starts the stack with `docker compose up --build --wait`, and runs
-  `backend/scripts/smoke_test.py` against it.
+**Frontend.** Vitest and Testing Library render the real screens and routes against a mock API
+(MSW) built from the same generated types; nothing reaches a server.
+
+```bash
+cd frontend
+npm ci
+npm run typecheck
+npm test
+```
+
+**End to end.** One Playwright test drives the whole stack in Chromium: it signs up, uploads a
+generated PDF, waits until it is ready, asks a question, opens the cited page in the viewer, signs
+out, and fails if the browser reports a Content-Security-Policy violation. Nothing is mocked. Start
+the stack first (`docker compose up --build`), then:
+
+```bash
+cd frontend
+npx playwright install chromium
+npm run e2e
+```
+
+GitHub Actions (`.github/workflows/tests.yml`) runs three jobs on every push and pull request:
+- **pytest**: the backend suite on Python 3.13 with a `pgvector/pgvector:pg16` service and
+  `REQUIRE_TEST_DB=1`, then a check that `frontend/openapi.json` matches the API.
+- **frontend**: a check that the generated types match `openapi.json`, the type check, and the
+  frontend tests.
+- **docker**: builds the images, starts the stack with `docker compose up --build --wait`, runs
+  `backend/scripts/smoke_test.py` through the web server, then the Playwright test.
 
 ## Evaluation
 
@@ -271,6 +334,8 @@ is most of the document.
   and are tested against a fake HTTP layer, but have not been sent to the real APIs.
 - **Faithfulness evaluation**, and a recall@5 result on a real document.
 - **Search across documents.** Every search and question is limited to one document.
+- **Saved questions.** The web app keeps a document's questions in the browser tab only; the API has
+  nowhere to store them.
 
 ## Known issues
 
@@ -284,8 +349,11 @@ is most of the document.
 
 ## Tech stack
 
-Python 3.13, FastAPI, SQLAlchemy 2, PostgreSQL 16 with pgvector, pypdf, sentence-transformers
-(`all-MiniLM-L6-v2`), httpx, python-jose, passlib with bcrypt, pytest, Docker, GitHub Actions.
+Backend: Python 3.13, FastAPI, SQLAlchemy 2, PostgreSQL 16 with pgvector, pypdf,
+sentence-transformers (`all-MiniLM-L6-v2`), httpx, python-jose, passlib with bcrypt, pytest.
+Frontend: React 19, TypeScript, Vite, React Router, TanStack Query, openapi-fetch with types from
+openapi-typescript, Vitest, Testing Library, MSW, Playwright; served by nginx.
+Docker and GitHub Actions for both.
 
 ## Author
 

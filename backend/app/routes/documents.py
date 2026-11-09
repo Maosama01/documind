@@ -1,4 +1,5 @@
 import logging
+import os
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -7,7 +8,8 @@ from app.models.user import User
 from app.models.document import Document
 from app.schemas.document import DocumentResponse, DocumentListResponse
 from app.services.dependencies import get_current_user
-from app.services.pdf_service import delete_upload_file, save_upload_file
+from fastapi.responses import FileResponse
+from app.services.pdf_service import delete_upload_file, save_upload_file, upload_path
 from app.services.document_service import (
     process_document,
     get_documents_for_user,
@@ -145,6 +147,34 @@ def get_document_status(
             "failed": f"Processing failed: {document.error_message or 'reason not recorded'}"
         }.get(document.status, "Unknown status")
     }
+
+
+@router.get("/{document_id}/file")
+def get_document_file(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    The uploaded PDF of one of your documents, sent inline so a browser can
+    show it (the frontend opens it at a cited page).
+    """
+    document = get_document_by_id(db, document_id, current_user.id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    path = upload_path(document.filename)
+    if path is None or not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="The PDF file for this document is missing")
+
+    # Stored as "<uuid>_<original name>"; send the original name back
+    original_name = document.filename.split("_", 1)[-1]
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=original_name,
+        content_disposition_type="inline"
+    )
 
 
 @router.get("/{document_id}/search")

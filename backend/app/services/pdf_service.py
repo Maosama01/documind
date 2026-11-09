@@ -2,7 +2,7 @@ import os
 import aiofiles
 # pyrefly: ignore [missing-import]
 from pypdf import PdfReader
-from typing import List, Dict
+from typing import List, Dict, Optional
 from fastapi import UploadFile
 
 # Uploaded PDFs are stored here, relative to the directory the server runs
@@ -29,17 +29,23 @@ async def save_upload_file(upload_file: UploadFile, filename: str) -> str:
     
     return file_path
 
-def delete_upload_file(filename: str) -> bool:
+def upload_path(filename: str) -> Optional[str]:
     """
-    Delete a saved upload. Returns True if a file was removed.
-
-    The stored filename includes the name the user uploaded, so the path is
-    checked to stay directly inside UPLOAD_DIR before anything is deleted.
-    A file that is already gone is not an error.
+    The full path of a saved upload, or None if `filename` would point
+    anywhere but directly inside UPLOAD_DIR. The stored filename includes the
+    name the user uploaded, so every read or delete goes through this check.
     """
     upload_dir = os.path.realpath(UPLOAD_DIR)
     path = os.path.realpath(os.path.join(upload_dir, filename))
-    if os.path.dirname(path) != upload_dir:
+    return path if os.path.dirname(path) == upload_dir else None
+
+def delete_upload_file(filename: str) -> bool:
+    """
+    Delete a saved upload. Returns True if a file was removed.
+    A file that is already gone, or a name outside UPLOAD_DIR, is not an error.
+    """
+    path = upload_path(filename)
+    if path is None:
         return False
     try:
         os.remove(path)

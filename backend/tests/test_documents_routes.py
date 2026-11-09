@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from app.models import Document
 from app.services import document_service, pdf_service
 from app.services.document_service import UNREADABLE_PDF
 from app.services.pdf_service import delete_upload_file
@@ -37,9 +38,9 @@ def fake_model(monkeypatch):
     )
 
 
-def login(client) -> dict:
-    client.post("/auth/signup", json={"email": EMAIL, "full_name": "Owner", "password": PASSWORD})
-    token = client.post("/auth/login", json={"email": EMAIL, "password": PASSWORD}).json()["access_token"]
+def login(client, email: str = EMAIL) -> dict:
+    client.post("/auth/signup", json={"email": email, "full_name": "Owner", "password": PASSWORD})
+    token = client.post("/auth/login", json={"email": email, "password": PASSWORD}).json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -112,3 +113,53 @@ def test_delete_upload_file_stays_inside_the_upload_folder(upload_dir):
     assert delete_upload_file("mine.pdf") is True
     assert not inside.exists()
     assert delete_upload_file("mine.pdf") is False  # already gone: not an error
+
+
+@pytest.mark.db
+def test_the_owner_gets_the_pdf_inline(client, upload_dir, fake_model):
+    headers = login(client)
+    content = make_pdf(SENTENCE)
+    document = upload(client, headers, content, name="contract.pdf")
+
+    response = client.get(f"/documents/{document['id']}/file", headers=headers)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["content-disposition"].startswith("inline")
+    assert 'filename="contract.pdf"' in response.headers["content-disposition"]
+    assert response.content == content
+
+
+@pytest.mark.db
+def test_nobody_else_gets_the_pdf(client, upload_dir, fake_model):
+    document = upload(client, login(client), make_pdf(SENTENCE))
+    stranger = login(client, email="stranger@example.com")
+
+    assert client.get(f"/documents/{document['id']}/file", headers=stranger).status_code == 404
+    assert client.get(f"/documents/{document['id']}/file").status_code == 401
+
+
+@pytest.mark.db
+def test_a_missing_pdf_file_is_a_404_with_a_reason(client, upload_dir, fake_model):
+    headers = login(client)
+    document = upload(client, headers, make_pdf(SENTENCE))
+    (upload_dir / document["filename"]).unlink()
+
+    response = client.get(f"/documents/{document['id']}/file", headers=headers)
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "The PDF file for this document is missing"
+
+
+@pytest.mark.db
+def test_a_stored_name_outside_the_upload_folder_is_never_served(client, db_session, upload_dir, fake_model):
+    headers = login(client)
+    document = upload(client, headers, make_pdf(SENTENCE))
+    (upload_dir.parent / "outside.pdf").write_bytes(b"not an upload")
+    row = db_session.get(Document, document["id"])
+    row.filename = "../outside.pdf"
+    db_session.commit()
+
+    response = client.get(f"/documents/{document['id']}/file", headers=headers)
+
+    assert response.status_code == 404

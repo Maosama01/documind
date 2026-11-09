@@ -16,8 +16,9 @@ from app.main import app
 
 README = (Path(__file__).resolve().parents[2] / "README.md").read_text(encoding="utf-8")
 
-# The README claimed these before Phase 6; none of them exist in this repository.
-NOT_BUILT = ["AWS", "S3", "EC2", "React", "Ollama", "LLaMA"]
+# The README claimed these before Phase 6 and none of them exist in this repository.
+# (It also claimed a React frontend; one was built in Phase 10, so React is allowed.)
+NOT_BUILT = ["AWS", "S3", "EC2", "Ollama", "LLaMA"]
 
 
 def readme_endpoints() -> set:

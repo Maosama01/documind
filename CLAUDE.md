@@ -5,6 +5,14 @@ DocuMind is a FastAPI + PostgreSQL/pgvector RAG API. The Python package lives in
 
 ## Running the tests
 
+Frontend (`frontend/`, Node 22.13+): `npm ci && npm run typecheck && npm test` (Vitest + MSW, no
+server needed). End to end: `docker compose up --build` (needs `backend/.env`), then
+`npx playwright install chromium && npm run e2e`. After any change to a route or schema, run
+`cd backend && .venv/bin/python -m scripts.export_openapi` and `cd frontend && npm run api:types`;
+CI fails if `frontend/openapi.json` or `frontend/src/api/schema.d.ts` is stale.
+
+Backend:
+
 ```bash
 cd backend
 python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
@@ -182,9 +190,30 @@ for readers, so update both places when one is fixed):
   volume, has a /health healthcheck. CI job "docker" runs `docker compose up --build --wait` and
   `backend/scripts/smoke_test.py` (stdlib only; `make_pdf` there is shared with the route tests).
   Measured on Apple silicon (arm64): build about 5 min; image 2.05 GB unpacked (pip layer 1.33 GB,
-  model 92 MB, app 152 kB), about 474 MB compressed; stack healthy in 14 s; smoke test passed. To
+  model 92 MB, app 152 kB), about 474 MB compressed; stack healthy in 14 s; smoke test passed.
+  First GitHub run (id 42651298749, commit 1a90e7f): pytest job 185 passed; docker job built the
+  image on x86_64, both containers healthy, smoke test passed; whole docker job 2 min 14 s. To
   verify without touching the user's dev volume, use another Compose project
   (`-p documind-verify`) with an override that renames the containers.
+- [x] **Phase 10, web app** (committed 2026-11-10). React 19 + TypeScript + Vite in
+  `frontend/`, React Router 7, TanStack Query, openapi-fetch with types generated from the API's
+  OpenAPI schema. Served by nginx (`web` service, http://localhost:3000) which forwards `/api` to the
+  API and sends a strict CSP (`frontend/security-headers.conf`). Token in sessionStorage (user's
+  choice; CSP is the mitigation; httpOnly cookies would need backend changes). Questions are kept per
+  tab in sessionStorage; the API stores none. New backend route `GET /documents/{id}/file` (owner
+  only, inline PDF, path checked via `pdf_service.upload_path`). Design: the design skill's
+  "achromatic ledger" app style (seed 721301883, sheet in `.taste-skill/`, gitignored); the face is
+  one hue, `--cite` #1d5fbf, used only for "where the answer came from"; the signature element is the
+  page strip (cited / read-not-cited / cited-never-read). Checked with the skill's lint and inspector
+  at 1440/768/390: 0 FAIL on every screen; WARNs defended: ragged rows and empty space come from a
+  two-document account and a viewport-tall PDF viewer; `--allow placeholder-data` because the
+  inspected account's email was example.com (the backend rejects reserved test domains like .test).
+  Version notes: TypeScript 5.9 (openapi-typescript does not support TS 7), React Router 7 and jsdom
+  29 (the newer majors need Node 22.22+; the user's Node is 22.17.1). openapi-fetch gets
+  `fetch: (r) => globalThis.fetch(r)` so mocks installed later still see calls. Dev-only
+  `?dev-token=` hook (`auth/session.ts`) lets the inspector open signed-in screens; it is absent from
+  the production bundle (checked). Verified: 36 frontend tests, 188 backend tests (55 db), the smoke test
+  through nginx, and the Playwright e2e against the full Docker stack all pass locally.
 - [x] **Follow-up, Swagger login** (2026-11-09): `POST /auth/token` takes the OAuth2 password form
   (`username` = email) and the bearer scheme's `tokenUrl` points to it, so Swagger's Authorize
   button works; JSON `/auth/login` is unchanged; `/auth/me` uses `get_current_user` instead of its
