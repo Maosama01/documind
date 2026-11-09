@@ -34,6 +34,24 @@ def test_login_with_email_and_password_returns_a_working_token(client):
     assert me.json()["email"] == EMAIL
 
 
+def test_creating_a_token_raises_no_deprecation_warning():
+    """datetime.utcnow() is deprecated; the expiry now uses a timezone-aware time."""
+    import warnings
+    from datetime import timedelta
+
+    from jose import jwt
+
+    from app.config import settings
+    from app.services.auth_service import create_access_token
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        token = create_access_token({"sub": EMAIL}, expires_delta=timedelta(minutes=5))
+
+    claims = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    assert claims["sub"] == EMAIL
+
+
 def test_swagger_logs_in_through_the_form_endpoint():
     """Swagger's Authorize button posts the OAuth2 form to the scheme's tokenUrl."""
     from app.main import app

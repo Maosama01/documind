@@ -32,6 +32,10 @@ class Document(Base):
     # "processed" → ready for querying
     # "failed" → something went wrong
     
+    error_message = Column(Text, nullable=True)
+    # Why processing failed, in words safe to show the user (the full error is
+    # in the server log). None unless status is "failed".
+
     page_count = Column(Integer, nullable=True)
     
     content_preview = Column(Text, nullable=True)

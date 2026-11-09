@@ -29,6 +29,24 @@ async def save_upload_file(upload_file: UploadFile, filename: str) -> str:
     
     return file_path
 
+def delete_upload_file(filename: str) -> bool:
+    """
+    Delete a saved upload. Returns True if a file was removed.
+
+    The stored filename includes the name the user uploaded, so the path is
+    checked to stay directly inside UPLOAD_DIR before anything is deleted.
+    A file that is already gone is not an error.
+    """
+    upload_dir = os.path.realpath(UPLOAD_DIR)
+    path = os.path.realpath(os.path.join(upload_dir, filename))
+    if os.path.dirname(path) != upload_dir:
+        return False
+    try:
+        os.remove(path)
+        return True
+    except FileNotFoundError:
+        return False
+
 def extract_text_from_pdf(file_path: str) -> List[Dict]:
     """
     Extract text from every page of a PDF.

@@ -83,14 +83,13 @@ Resolved in Phase 1:
 
 Still open (not in any phase; the README's "Not built yet" and "Known issues" sections list them
 for readers, so update both places when one is fixed):
-- `upload_document` hands the request-scoped DB session (closed by `get_db`) to the background task.
-- `delete_document` does not delete the PDF from disk (its docstring now says so).
-- `datetime.utcnow()` in `auth_service.py` and class-based pydantic `Config` in schemas are
-  deprecated (warnings in pytest output).
-- No migrations: `create_all` never alters an existing table, so schema changes reach an old
-  database only after the table is recreated.
-- A failed upload records no reason: the status endpoint only says "Processing failed. Please try
-  again."; the cause is only in the server log.
+- No migrations: `create_all` never alters an existing table. Additions to existing tables go in
+  `init_db` as SQL that is safe to run on every start (`CREATE INDEX IF NOT EXISTS`, `ALTER TABLE ...
+  ADD COLUMN IF NOT EXISTS`). Switch to Alembic (installed, never set up) before changes that need
+  data migration or column changes.
+- Startup marks every `pending`/`processing` document as failed (`fail_interrupted_documents`). This
+  assumes a single server process; with several uvicorn workers it would fail another worker's
+  in-progress upload.
 - Gemini and Anthropic have never been called for real (no API keys in this session). Their
   request shapes follow the docs read on 2026-11-09 and are tested against a fake HTTP layer only.
 - Extractive fallback limits: summary questions ("What is this document about?") match no single
@@ -155,6 +154,14 @@ for readers, so update both places when one is fixed):
   document_id, expected_pages) and reports recall@5 and a faithfulness placeholder;
   `data/golden.example.jsonl` holds the format and 3 rows marked as examples; the README section
   says RESULT PENDING until the user runs it on a real document.
+- [x] **Phase 7, processing reliability** (committed 2026-11-09; 160 tests pass against pgvector,
+  50 of them marked db, plus a real-server check). `process_document(document_id, file_path)` opens its own
+  session (FastAPI 0.136.3 closed the request session only after the task, holding a pooled
+  connection for the whole run); failures set `documents.error_message` to a safe category
+  (unreadable PDF, no text, model unavailable, internal) and log the full error; startup fails
+  interrupted documents; DELETE removes the PDF (path checked to stay in `uploads/`);
+  `datetime.utcnow` and pydantic class `Config` replaced, and `pytest.ini` turns DeprecationWarnings
+  from `app.` modules into errors.
 - [x] **Follow-up, Swagger login** (2026-11-09): `POST /auth/token` takes the OAuth2 password form
   (`username` = email) and the bearer scheme's `tokenUrl` points to it, so Swagger's Authorize
   button works; JSON `/auth/login` is unchanged; `/auth/me` uses `get_current_user` instead of its

@@ -1,4 +1,4 @@
-import os
+import logging
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -7,13 +7,15 @@ from app.models.user import User
 from app.models.document import Document
 from app.schemas.document import DocumentResponse, DocumentListResponse
 from app.services.dependencies import get_current_user
-from app.services.pdf_service import save_upload_file
+from app.services.pdf_service import delete_upload_file, save_upload_file
 from app.services.document_service import (
     process_document,
     get_documents_for_user,
     get_document_by_id,
     semantic_search
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/documents",
@@ -75,10 +77,10 @@ async def upload_document(
     db.refresh(document)
     
     # Process in background (extract text + create embeddings)
-    # The user gets a response immediately while this runs
+    # The user gets a response immediately while this runs. The task opens
+    # its own database session; this request's session is not passed on.
     background_tasks.add_task(
         process_document,
-        db,
         document.id,
         file_path
     )
@@ -124,21 +126,23 @@ def get_document_status(
     """
     Check processing status of a document.
     Poll this endpoint after uploading to know when processing is done.
+    When the status is "failed", error_message says why.
     """
     document = get_document_by_id(db, document_id, current_user.id)
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
-    
+
     return {
         "id": document.id,
         "status": document.status,
         "title": document.title,
         "page_count": document.page_count,
+        "error_message": document.error_message,
         "message": {
             "pending": "Document queued for processing",
             "processing": "Extracting text and creating embeddings...",
             "processed": "Ready! You can now ask questions.",
-            "failed": "Processing failed. Please try again."
+            "failed": f"Processing failed: {document.error_message or 'reason not recorded'}"
         }.get(document.status, "Unknown status")
     }
 
@@ -196,9 +200,7 @@ def delete_document(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Delete a document and all its chunks.
-
-    The uploaded PDF file is not removed from disk yet.
+    Delete a document, its chunks and its uploaded PDF file.
     """
     document = get_document_by_id(db, document_id, current_user.id)
     if not document:
@@ -206,7 +208,13 @@ def delete_document(
 
     # Chunks are deleted too: Document.chunks has cascade="all, delete-orphan",
     # and chunks.document_id has ON DELETE CASCADE in the database.
+    filename = document.filename
     db.delete(document)
     db.commit()
-    
+
+    # The file goes after the commit: if the commit failed, the document
+    # would still exist without its file. A file left behind is only logged.
+    if not delete_upload_file(filename):
+        logger.warning("Document %s deleted, but no file %r was removed", document_id, filename)
+
     return None  # 204 No Content

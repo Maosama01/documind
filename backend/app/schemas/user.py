@@ -1,5 +1,5 @@
 # pyrefly: ignore [missing-import]
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr
 from datetime import datetime
 from typing import Optional
 
@@ -19,16 +19,15 @@ class UserLogin(BaseModel):
 
 class UserResponse(BaseModel):
     """What we send BACK to the client — notice: NO password field!"""
+    model_config = ConfigDict(from_attributes=True)
+    # This tells Pydantic: "you can create this from a SQLAlchemy model object"
+    # Without this, Pydantic can only read plain dicts, not ORM objects
+
     id: int
     email: str
     full_name: str
     is_active: bool
     created_at: datetime
-    
-    class Config:
-        from_attributes = True
-        # This tells Pydantic: "you can create this from a SQLAlchemy model object"
-        # Without this, Pydantic can only read plain dicts, not ORM objects
 
 class UserUpdate(BaseModel):
     """What the client sends when updating their profile"""

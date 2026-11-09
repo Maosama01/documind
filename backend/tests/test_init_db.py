@@ -65,6 +65,24 @@ def test_init_db_adds_the_index_to_a_chunks_table_created_without_it(db_engine):
     assert "ix_chunks_document_id" in chunk_indexes(db_engine)
 
 
+def test_init_db_adds_error_message_to_a_documents_table_created_without_it(db_engine):
+    """A database created before Phase 7: create_all would not add the column."""
+    def has_column():
+        with db_engine.connect() as connection:
+            return connection.execute(text(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = 'documents' AND column_name = 'error_message'"
+            )).scalar() == 1
+
+    with db_engine.begin() as connection:
+        connection.execute(text("ALTER TABLE documents DROP COLUMN error_message"))
+    assert not has_column()
+
+    init_db(db_engine)
+
+    assert has_column()
+
+
 def test_chunks_has_no_approximate_vector_index(db_engine):
     init_db(db_engine)
 

@@ -16,7 +16,8 @@ does today and what is still missing.
 - **Accounts:** sign up and log in with email and password (bcrypt hashes); every document route
   needs a JWT (HS256, 30 minutes).
 - **Upload:** `POST /documents/upload` accepts a PDF up to 10 MB, saves it to `backend/uploads/`, and
-  processes it in the background.
+  processes it in the background. If processing fails, the document's `error_message` says why
+  (for example, the file is not a readable PDF, or it has no extractable text).
 - **Processing:** pypdf extracts the text of each page; the text is split into 180-word chunks with a
   30-word overlap that never cross a page; `all-MiniLM-L6-v2` turns each chunk into a 384-number
   vector; chunks and vectors go into the `chunks` table.
@@ -61,9 +62,9 @@ you. Other clients send it as `Authorization: Bearer <token>`.
 | `POST` | `/documents/upload` | yes | Upload a PDF (multipart field `file`); processing runs in the background |
 | `GET` | `/documents/` | yes | Your documents |
 | `GET` | `/documents/{document_id}` | yes | One of your documents |
-| `GET` | `/documents/{document_id}/status` | yes | `pending`, `processing`, `processed` or `failed` |
+| `GET` | `/documents/{document_id}/status` | yes | `pending`, `processing`, `processed` or `failed`, with `error_message` saying why it failed |
 | `GET` | `/documents/{document_id}/search` | yes | `?q=...&top_k=5`: the closest chunks of a processed document |
-| `DELETE` | `/documents/{document_id}` | yes | Delete a document and its chunks (the PDF file stays on disk) |
+| `DELETE` | `/documents/{document_id}` | yes | Delete a document, its chunks and its PDF file |
 | `POST` | `/query/` | yes | JSON `question`, `document_id`, `max_results` (1-10, default 5) → answer |
 
 A document that is not yours returns 404, as if it did not exist. `POST /query/` returns 400 while a
@@ -98,8 +99,9 @@ because `.env` and `uploads/` are found relative to the current directory:
 .venv/bin/uvicorn app.main:app
 ```
 
-On startup the app creates the `vector` extension, the tables and the `document_id` index if they
-are missing. The first upload downloads the embedding model (about 90 MB) into the Hugging Face
+On startup the app creates the `vector` extension, the tables, the `document_id` index and the
+`error_message` column if they are missing, and marks any document an earlier run left unfinished
+as `failed`. The first upload downloads the embedding model (about 90 MB) into the Hugging Face
 cache.
 
 A full round trip with curl:
@@ -229,7 +231,8 @@ is most of the document.
 - **Deployment.** No Dockerfile for the API and no hosting: Docker Compose runs only PostgreSQL, and
   uploads are stored on the local disk.
 - **Migrations.** Tables are created with SQLAlchemy `create_all`, which never changes an existing
-  table.
+  table. The two later additions (an index and the `error_message` column) are applied at startup
+  with SQL that is safe to run every time; there are no versioned migrations.
 - **Real LLM calls are unverified.** The Gemini and Anthropic requests follow their documentation
   and are tested against a fake HTTP layer, but have not been sent to the real APIs.
 - **Faithfulness evaluation**, and a recall@5 result on a real document.
@@ -237,11 +240,11 @@ is most of the document.
 
 ## Known issues
 
-- A failed upload does not say why: the status endpoint only reports `failed`; the cause is in the
-  server log.
-- Deleting a document leaves its PDF in `backend/uploads/`.
-- Background processing runs inside the API process (FastAPI `BackgroundTasks`) and reuses the
-  upload request's database session; a restart during processing leaves the document unfinished.
+- Background processing runs inside the API process (FastAPI `BackgroundTasks`), so a restart
+  interrupts it. On the next start those documents are marked `failed` with a message asking to
+  upload again. That startup step assumes one server process: with several workers
+  (`uvicorn --workers N`), a worker that starts while another is processing would mark that upload
+  as failed.
 - The upload check is a case-sensitive `.pdf` filename suffix, not a check of the file's contents.
 - Tokens cannot be revoked or refreshed; they expire after 30 minutes.
 
