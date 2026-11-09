@@ -46,8 +46,9 @@ POST /query/ ──► embed the question with the same model
 
 ## API
 
-Interactive docs run at `http://localhost:8000/docs`. Swagger's **Authorize** button does not work
-(see Known issues), so send the token yourself as `Authorization: Bearer <token>`.
+Interactive docs run at `http://localhost:8000/docs`. To call protected routes there, click
+**Authorize** and log in with your email in the `username` field; Swagger then sends the token for
+you. Other clients send it as `Authorization: Bearer <token>`.
 
 | Method | Path | Auth | What it does |
 |---|---|---|---|
@@ -55,6 +56,7 @@ Interactive docs run at `http://localhost:8000/docs`. Swagger's **Authorize** bu
 | `GET` | `/health` | no | Returns `{"status": "healthy"}` |
 | `POST` | `/auth/signup` | no | Create an account: JSON `email`, `full_name`, `password` |
 | `POST` | `/auth/login` | no | JSON `email`, `password` → `access_token` |
+| `POST` | `/auth/token` | no | The same login as an OAuth2 form (`username` = email, `password`); used by Swagger's Authorize button |
 | `GET` | `/auth/me` | yes | The logged-in user |
 | `POST` | `/documents/upload` | yes | Upload a PDF (multipart field `file`); processing runs in the background |
 | `GET` | `/documents/` | yes | Your documents |
@@ -235,8 +237,6 @@ is most of the document.
 
 ## Known issues
 
-- Swagger's **Authorize** button cannot log in: it sends form fields `username` and `password`, but
-  `/auth/login` expects JSON `email` and `password`.
 - A failed upload does not say why: the status endpoint only reports `failed`; the cause is in the
   server log.
 - Deleting a document leaves its PDF in `backend/uploads/`.

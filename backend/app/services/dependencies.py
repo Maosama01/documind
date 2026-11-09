@@ -10,8 +10,10 @@ from app.models.user import User
 
 # OAuth2PasswordBearer tells FastAPI:
 # "Look for a Bearer token in the Authorization header"
-# tokenUrl="/auth/login" tells the Swagger docs where to get a token
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+# tokenUrl tells Swagger's Authorize button where to log in. It must be
+# /auth/token: the button sends the OAuth2 form (username, password), which
+# the JSON endpoint /auth/login does not accept.
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
 def get_current_user(
     token: str = Depends(oauth2_scheme),

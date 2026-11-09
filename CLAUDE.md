@@ -85,8 +85,6 @@ Still open (not in any phase; the README's "Not built yet" and "Known issues" se
 for readers, so update both places when one is fixed):
 - `upload_document` hands the request-scoped DB session (closed by `get_db`) to the background task.
 - `delete_document` does not delete the PDF from disk (its docstring now says so).
-- Swagger's Authorize button cannot log in: `OAuth2PasswordBearer(tokenUrl="/auth/login")` makes it
-  send form fields `username`/`password`, but `/auth/login` takes JSON `{email, password}`.
 - `datetime.utcnow()` in `auth_service.py` and class-based pydantic `Config` in schemas are
   deprecated (warnings in pytest output).
 - No migrations: `create_all` never alters an existing table, so schema changes reach an old
@@ -157,6 +155,10 @@ for readers, so update both places when one is fixed):
   document_id, expected_pages) and reports recall@5 and a faithfulness placeholder;
   `data/golden.example.jsonl` holds the format and 3 rows marked as examples; the README section
   says RESULT PENDING until the user runs it on a real document.
+- [x] **Follow-up, Swagger login** (2026-11-09): `POST /auth/token` takes the OAuth2 password form
+  (`username` = email) and the bearer scheme's `tokenUrl` points to it, so Swagger's Authorize
+  button works; JSON `/auth/login` is unchanged; `/auth/me` uses `get_current_user` instead of its
+  own second scheme.
 - [x] **Phase 6, README** (committed 2026-11-09; 137 tests pass against pgvector).
   Also fixed 7 outdated comments (S3, "Week N", frontend, compose health check) and removed the
   unused boto3, botocore, s3transfer, jmespath, python-dateutil and urllib3 from requirements.
