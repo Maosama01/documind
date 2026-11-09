@@ -22,6 +22,10 @@ docker compose up -d db          # from the repo root: the pgvector Postgres
   was verified with a throwaway container:
   `docker run -d --rm --name documind_pytest_pg -e POSTGRES_USER=documind_user -e POSTGRES_PASSWORD=documind_pass -e POSTGRES_DB=documind -p 127.0.0.1:55432:5432 pgvector/pgvector:pg16`
   then `TEST_DATABASE_URL=postgresql://documind_user:documind_pass@127.0.0.1:55432/documind_test .venv/bin/pytest`.
+- The user's `~/.zshrc` sets `HF_HOME=/Volumes/DevDrive/Models/huggingface`. When that drive is not
+  mounted, the embedding model cannot load and every upload ends as `failed`. MiniLM is cached in
+  `~/.cache/huggingface`; the Phase 3 end-to-end run used `HF_HOME=$HOME/.cache/huggingface`.
+  Do not edit the user's shell config.
 
 ## Integrity rules (override everything)
 
@@ -46,7 +50,7 @@ code for a phase, list the files to be touched and ask all questions in one batc
   `Chunk.embedding.op("<=>")` with no index; python-jose HS256 JWT, 30 min; upload uses FastAPI
   `BackgroundTasks`; `docker-compose.yml` runs only `pgvector/pgvector:pg16`.
 - Bugs:
-  - `POST /query/` returns a hardcoded placeholder with fake sources and no auth.
+  - `POST /query/` returns a hardcoded placeholder with fake sources and no auth. (Fixed in Phase 3.)
   - `/auth/login` reuses `UserCreate`, so it demands `full_name`.
   - `config.py` has a hardcoded default `SECRET_KEY` and `DEBUG=True`.
   - Chunk→Document has no cascade, so deleting a processed document raises `IntegrityError`.
@@ -63,8 +67,11 @@ code for a phase, list the files to be touched and ask all questions in one batc
 
 Resolved in Phase 1:
 - The folder was not a git repo. It is now attached to `origin` = public `Maosama01/documind`.
-  Local `main` rewrote GitHub's `e536266` as `861ceac` without the user PDF; the user force-pushes.
-  Until then (and until GitHub garbage-collects or support purges it) `e536266` still serves the PDF.
+  `e536266` was rewritten as `861ceac` without the user PDF, and the user force-pushed `main`
+  (`e536266...de0120f`). Checked on 2026-11-09: GitHub `main` has no `uploads/` or PDF, the repo
+  has 0 forks. `e536266` (with the PDF) is still served by its SHA; the user confirmed the PDF is
+  not sensitive, so no GitHub Support purge is needed. The rule still stands: user files never get
+  committed.
 - Importing `app.main` ran `create_all` and loaded the embedding model. Now `init_db()` runs in the
   FastAPI lifespan hook and `embedding_service.get_model()` loads the model on first use.
 - Root `requirements.txt` (bcrypt 5.0.0 + passlib 1.7.4) was deleted; `backend/requirements.txt`
@@ -80,6 +87,15 @@ Still open (not in any phase yet):
   deprecated (warnings in pytest output).
 - No migrations: `create_all` never alters an existing table, so schema changes reach an old
   database only after the table is recreated.
+- A failed upload records no reason: the status endpoint only says "Processing failed. Please try
+  again."; the cause is only in the server log.
+- Gemini and Anthropic have never been called for real (no API keys in this session). Their
+  request shapes follow the docs read on 2026-11-09 and are tested against a fake HTTP layer only.
+- Extractive fallback limits: summary questions ("What is this document about?") match no single
+  sentence and get "Not found"; sentences split only on . ! ? so text using "…" yields very long
+  "sentences"; `FALLBACK_MIN_SIMILARITY = 0.35` is untuned (on the one local PDF, 2 answerable
+  questions scored 0.62/0.67, a summary question 0.23, an unrelated one 0.11; 4 questions are a
+  sanity check, not an evaluation).
 - Phase 4 note: an HNSW index combined with `WHERE document_id = …` filters after the approximate
   search, so a document can get fewer than `top_k` results. The `pgvector/pgvector:pg16` image
   ships pgvector 0.8.7, which has `hnsw.iterative_scan`; test it before claiming results are kept.
@@ -97,7 +113,11 @@ Still open (not in any phase yet):
   pages under 20 words are skipped; `split_text_simple` (unused) deleted. Spec: chunk size and overlap become settings (default 180/30 words) with a
   comment explaining the 256-token limit. Tests: overlap shared between neighbours, nothing lost at
   the end, chunks never cross pages, tiny tails dropped.
-- [ ] **Phase 3, generation:** new `services/llm_service.py` with `build_prompt` (sources labelled
+- [x] **Phase 3, generation** (done 2026-11-09, 96 tests pass against pgvector, plus one real
+  end-to-end run with `LLM_PROVIDER=none`; committed 2026-11-09). Decisions: grounded is also false when
+  nothing is cited, true for the not-found reply; httpx for both providers, no SDK; defaults
+  `LLM_PROVIDER=none`, `gemini-3.8-flash`, `claude-opus-5-5`; provider failure → 502, no silent
+  fallback; no sampling parameters sent. Spec: new `services/llm_service.py` with `build_prompt` (sources labelled
   `[p.N]`, answer only from sources, cite pages, reply exactly "Not found in the document."
   otherwise), a cited-pages parser, and `generate_answer` returning answer, provider, cited_pages
   and a `grounded` flag that is false when a cited page was not retrieved. Providers by env:

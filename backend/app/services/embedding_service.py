@@ -48,7 +48,7 @@ def create_embedding(text: str) -> List[float]:
     embedding = get_model().encode(text)
     return embedding.tolist()
 
-def create_embeddings_batch(texts: List[str]) -> List[List[float]]:
+def create_embeddings_batch(texts: List[str], show_progress_bar: bool = True) -> List[List[float]]:
     """
     Create embeddings for multiple texts at once.
     Much faster than calling create_embedding() in a loop
@@ -57,9 +57,10 @@ def create_embeddings_batch(texts: List[str]) -> List[List[float]]:
     Input:  ["text1", "text2", "text3"]
     Output: [[...384 numbers...], [...384 numbers...], [...384 numbers...]]
     """
-    embeddings = get_model().encode(texts, batch_size=32, show_progress_bar=True)
+    embeddings = get_model().encode(texts, batch_size=32, show_progress_bar=show_progress_bar)
     # batch_size=32 means process 32 texts at a time
-    # show_progress_bar=True shows a progress bar in the terminal
+    # show_progress_bar prints a progress bar in the terminal; the per-question
+    # extractive fallback turns it off
 
     return [emb.tolist() for emb in embeddings]
 
@@ -89,7 +90,8 @@ def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
     - 0.0 = unrelated
     - -1.0 = opposite meaning
 
-    Not called anywhere in the app: semantic_search lets pgvector compute
+    Used by the extractive fallback in llm_service to rank sentences.
+    Search itself does not use it: semantic_search lets pgvector compute
     cosine distance in SQL with the <=> operator.
     """
     a = np.array(vec1)

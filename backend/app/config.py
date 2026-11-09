@@ -1,3 +1,5 @@
+from typing import Literal, Optional
+
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -51,6 +53,27 @@ class Settings(BaseSettings):
     # Words repeated at the start of the next chunk on the same page, so text cut
     # at a boundary keeps some context. Must be at least MIN_CHUNK_WORDS (20) and
     # less than CHUNK_SIZE_WORDS; see validate_chunk_settings.
+
+    # Answer generation for POST /query/
+    LLM_PROVIDER: Literal["none", "gemini", "anthropic"] = "none"
+    # "none" answers with the extractive fallback in llm_service: no external
+    # call and no API key; it returns the document's own sentences.
+    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_MODEL: str = "gemini-3.8-flash"
+    ANTHROPIC_API_KEY: Optional[str] = None
+    ANTHROPIC_MODEL: str = "claude-opus-5-5"
+    # Anthropic's most capable model, and its most expensive.
+    # claude-haiku-5-5 costs less per query.
+    LLM_TIMEOUT_SECONDS: float = 30.0
+
+    @model_validator(mode="after")
+    def provider_key_must_be_set(self) -> "Settings":
+        # Refuse to start with a provider that cannot answer, instead of
+        # failing on the first question.
+        key_name = {"gemini": "GEMINI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}.get(self.LLM_PROVIDER)
+        if key_name and not getattr(self, key_name):
+            raise ValueError(f"LLM_PROVIDER={self.LLM_PROVIDER} needs {key_name} to be set")
+        return self
 
     @model_validator(mode="after")
     def chunk_settings_must_be_safe(self) -> "Settings":

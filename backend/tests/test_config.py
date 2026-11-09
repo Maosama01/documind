@@ -51,6 +51,32 @@ def test_app_refuses_unsafe_chunk_settings(monkeypatch, size, overlap):
         Settings(_env_file=None)
 
 
+def test_llm_provider_defaults_to_none(monkeypatch):
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    assert Settings(_env_file=None).LLM_PROVIDER == "none"
+
+
+@pytest.mark.parametrize("provider,key_name", [("gemini", "GEMINI_API_KEY"), ("anthropic", "ANTHROPIC_API_KEY")])
+def test_app_refuses_a_provider_without_its_api_key(monkeypatch, provider, key_name):
+    monkeypatch.setenv("LLM_PROVIDER", provider)
+    monkeypatch.setenv(key_name, "")
+    with pytest.raises(ValidationError, match=key_name):
+        Settings(_env_file=None)
+
+
+@pytest.mark.parametrize("provider,key_name", [("gemini", "GEMINI_API_KEY"), ("anthropic", "ANTHROPIC_API_KEY")])
+def test_provider_with_its_api_key_is_accepted(monkeypatch, provider, key_name):
+    monkeypatch.setenv("LLM_PROVIDER", provider)
+    monkeypatch.setenv(key_name, "some-key")
+    assert Settings(_env_file=None).LLM_PROVIDER == provider
+
+
+def test_unknown_llm_provider_is_rejected(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    with pytest.raises(ValidationError, match="LLM_PROVIDER"):
+        Settings(_env_file=None)
+
+
 def test_fastapi_debug_follows_the_setting():
     from app.main import app
 

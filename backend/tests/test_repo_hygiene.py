@@ -31,4 +31,5 @@ def test_no_uploaded_file_is_tracked():
 
 def test_env_example_contains_no_secret_value():
     lines = (BACKEND_DIR / ".env.example").read_text().splitlines()
-    assert [line for line in lines if line.startswith("SECRET_KEY")] == ["SECRET_KEY="]
+    secret_lines = [line for line in lines if line.split("=")[0].endswith("_KEY")]
+    assert secret_lines == ["SECRET_KEY=", "GEMINI_API_KEY=", "ANTHROPIC_API_KEY="]

@@ -17,6 +17,7 @@ TEST_DATABASE_URL = os.environ.get(
 os.environ["SECRET_KEY"] = TEST_SECRET_KEY
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL  # the app under test never sees the dev database
 os.environ["DEBUG"] = "false"
+os.environ["LLM_PROVIDER"] = "none"  # no test calls a real LLM; tests opt into a fake provider
 
 import pytest  # noqa: E402
 from sqlalchemy import create_engine, text  # noqa: E402
