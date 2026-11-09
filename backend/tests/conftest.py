@@ -13,6 +13,9 @@ TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
     "postgresql://documind_user:documind_pass@localhost:5432/documind_test",
 )
+REQUIRE_TEST_DB = os.environ.get("REQUIRE_TEST_DB") == "1"
+# CI sets REQUIRE_TEST_DB=1: an unreachable database then fails the run instead
+# of skipping the database tests, so CI cannot pass without running them.
 
 os.environ["SECRET_KEY"] = TEST_SECRET_KEY
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL  # the app under test never sees the dev database
@@ -61,11 +64,14 @@ def db_engine():
     try:
         _create_database_if_missing(url)
     except OperationalError as error:
-        pytest.skip(
+        message = (
             f"Could not connect to the test Postgres at {url.render_as_string(hide_password=True)}: "
             f"{str(error.orig).strip()} -- start it with `docker compose up -d db`, "
             "or point TEST_DATABASE_URL at a pgvector Postgres"
         )
+        if REQUIRE_TEST_DB:
+            pytest.fail(f"REQUIRE_TEST_DB=1 and {message}", pytrace=False)
+        pytest.skip(message)
 
     import app.models  # noqa: F401  registers every table on Base.metadata
     from app.database import Base, engine, init_db

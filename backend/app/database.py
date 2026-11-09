@@ -30,7 +30,8 @@ Base = declarative_base()
 
 def init_db(bind: Engine = engine) -> None:
     """
-    Prepare the database at startup: pgvector extension first, then tables.
+    Prepare the database at startup: pgvector extension first, then tables,
+    then the index on chunks.document_id.
 
     Order matters: chunks.embedding is a vector(384) column, and Postgres
     rejects the vector type until the extension exists in this database.
@@ -50,6 +51,11 @@ def init_db(bind: Engine = engine) -> None:
     with bind.begin() as connection:
         connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         Base.metadata.create_all(bind=connection)
+        # create_all adds a table's indexes only when it creates the table, so a
+        # chunks table created before this index existed gets it here.
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_chunks_document_id ON chunks (document_id)"
+        ))
 
 
 # This is a "dependency" — FastAPI will call this function

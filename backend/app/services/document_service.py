@@ -129,6 +129,18 @@ def semantic_search(
     # pgvector's <=> operator calculates cosine distance
     # (1 - cosine similarity, so lower = more similar)
     # We order by distance ascending to get most similar first
+    #
+    # This search is exact: Postgres uses the index on chunks.document_id to
+    # fetch this document's chunks, computes the distance to every one of them,
+    # and sorts. A document has at most a few hundred chunks, so that is cheap.
+    #
+    # There is deliberately no HNSW (approximate vector) index. Measured on
+    # pgvector 0.8.7 with 200 documents x 100 chunks of random vectors, an HNSW
+    # index made this exact query shape return 0 rows instead of 5: Postgres
+    # took the 40 nearest chunks across ALL documents (hnsw.ef_search) and only
+    # then removed the ones from other documents. With hnsw.iterative_scan it
+    # returned 5 rows, but not the same 5 as the exact search. HNSW pays off for
+    # searching across every document, which this API does not offer.
     results = db.query(Chunk).filter(
         Chunk.document_id == document_id
     ).order_by(

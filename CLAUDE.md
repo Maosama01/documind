@@ -22,10 +22,11 @@ docker compose up -d db          # from the repo root: the pgvector Postgres
   was verified with a throwaway container:
   `docker run -d --rm --name documind_pytest_pg -e POSTGRES_USER=documind_user -e POSTGRES_PASSWORD=documind_pass -e POSTGRES_DB=documind -p 127.0.0.1:55432:5432 pgvector/pgvector:pg16`
   then `TEST_DATABASE_URL=postgresql://documind_user:documind_pass@127.0.0.1:55432/documind_test .venv/bin/pytest`.
-- The user's `~/.zshrc` sets `HF_HOME=/Volumes/DevDrive/Models/huggingface`. When that drive is not
-  mounted, the embedding model cannot load and every upload ends as `failed`. MiniLM is cached in
-  `~/.cache/huggingface`; the Phase 3 end-to-end run used `HF_HOME=$HOME/.cache/huggingface`.
-  Do not edit the user's shell config.
+- The user's `~/.zshrc` used to set `HF_HOME=/Volumes/DevDrive/Models/huggingface`; with that drive
+  unmounted the embedding model could not load and every upload ended as `failed`. At the user's
+  request (2026-11-09) it now uses the DevDrive only when `/Volumes/DevDrive` exists, otherwise
+  `~/.cache/huggingface` (where MiniLM is cached). Backup: `~/.zshrc.backup-2026-11-09`. Shells
+  started before the change still have the old value. Change the user's shell config only when asked.
 
 ## Integrity rules (override everything)
 
@@ -47,7 +48,8 @@ code for a phase, list the files to be touched and ask all questions in one batc
 - pypdf extraction per page; word-based chunking 500/50 in `chunking_service.py` (Phase 2: now
   180/30 from settings);
   all-MiniLM-L6-v2 embeddings (384 dims) in a pgvector `Vector(384)` column; search orders by
-  `Chunk.embedding.op("<=>")` with no index; python-jose HS256 JWT, 30 min; upload uses FastAPI
+  `Chunk.embedding.op("<=>")` with no index (Phase 4: exact search via a btree index on
+  `chunks.document_id`; deliberately no HNSW, see below); python-jose HS256 JWT, 30 min; upload uses FastAPI
   `BackgroundTasks`; `docker-compose.yml` runs only `pgvector/pgvector:pg16`.
 - Bugs:
   - `POST /query/` returns a hardcoded placeholder with fake sources and no auth. (Fixed in Phase 3.)
@@ -60,7 +62,7 @@ code for a phase, list the files to be touched and ask all questions in one batc
     tokens; at 180 words 0 of 7 were over, the largest at 255. Still word-based, so dense text can
     exceed 256; `process_document` logs how many chunks do.)
   - A user PDF is committed under `backend/uploads/`.
-  - Zero tests, no CI.
+  - Zero tests, no CI. (Tests since Phase 1; CI in `.github/workflows/tests.yml` since Phase 4.)
   - README claims AWS, React, Ollama and GitHub Actions that do not exist.
 
 ## Additional findings (2026-11-09)
@@ -96,9 +98,14 @@ Still open (not in any phase yet):
   "sentences"; `FALLBACK_MIN_SIMILARITY = 0.35` is untuned (on the one local PDF, 2 answerable
   questions scored 0.62/0.67, a summary question 0.23, an unrelated one 0.11; 4 questions are a
   sanity check, not an evaluation).
-- Phase 4 note: an HNSW index combined with `WHERE document_id = …` filters after the approximate
-  search, so a document can get fewer than `top_k` results. The `pgvector/pgvector:pg16` image
-  ships pgvector 0.8.7, which has `hnsw.iterative_scan`; test it before claiming results are kept.
+- HNSW decision (Phase 4, measured 2026-11-09 on pgvector 0.8.7, 200 documents x 100 chunks of
+  random vectors, query `WHERE document_id = 7 ORDER BY embedding <=> q LIMIT 5`): no index → 5 exact
+  rows; HNSW only → 0 rows (40 nearest across all documents, then filtered); HNSW +
+  `hnsw.iterative_scan = strict_order` → 5 rows, not the same 5 as exact; HNSW + btree on
+  `document_id` → planner used the btree, 5 exact rows. The user chose btree only, no HNSW.
+  `test_chunks_has_no_approximate_vector_index` guards this; the `test_search.py` tests alone do
+  NOT catch an added HNSW index at test data size (checked by adding one: they still passed).
+  Revisit HNSW only if the API ever searches across all documents.
 
 ## Phases (one at a time, stop after each for review)
 
@@ -127,7 +134,11 @@ Still open (not in any phase yet):
   status, `semantic_search`, then `generate_answer`; return question, answer, cited_pages,
   grounded, provider, sources. Tests mock the provider call; cover grounded true/false, not found,
   fallback.
-- [ ] **Phase 4, index and CI:** `CREATE INDEX IF NOT EXISTS … USING hnsw (embedding
+- [x] **Phase 4, index and CI** (committed 2026-11-09; 104 tests pass locally and in a Linux
+  container running the workflow's steps). Decisions: btree index on
+  `chunks.document_id` instead of HNSW (measured, see above); CI sets `REQUIRE_TEST_DB=1` so an
+  unreachable database fails the run; CI installs CPU-only torch from PyTorch's index. The workflow
+  has not run on GitHub yet. Spec was: `CREATE INDEX IF NOT EXISTS … USING hnsw (embedding
   vector_cosine_ops)` at startup; `.github/workflows/tests.yml` running pytest on push and
   pull_request.
 - [ ] **Phase 5, evaluation:** `scripts/eval_retrieval.py` takes a JSONL golden set (question,

@@ -30,12 +30,16 @@ class Chunk(Base):
     document_id = Column(
         Integer,
         ForeignKey("documents.id", ondelete="CASCADE"),
-        nullable=False
+        nullable=False,
+        index=True
     )
     # Every chunk belongs to a document.
     # ondelete="CASCADE" puts ON DELETE CASCADE on the foreign key in Postgres,
     # so deleting a document row deletes its chunks even outside SQLAlchemy
     # (e.g. a raw SQL DELETE).
+    # index=True creates ix_chunks_document_id: every search is limited to one
+    # document, and this index finds that document's chunks without reading
+    # the whole table (see semantic_search for why there is no vector index).
 
     document = relationship("Document", back_populates="chunks")
     # chunk.document → gives you the parent Document

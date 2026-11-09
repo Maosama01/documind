@@ -1,0 +1,51 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+
+    services:
+      # The same image as docker-compose.yml, so the db tests run against pgvector.
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: documind_user
+          POSTGRES_PASSWORD: documind_pass
+          POSTGRES_DB: documind
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U documind_user -d documind"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgresql://documind_user:documind_pass@localhost:5432/documind_test
+      # Fail, instead of skipping, if the database tests cannot reach Postgres.
+      REQUIRE_TEST_DB: "1"
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+
+      # The CPU-only torch build: the tests never run the real model, and the
+      # default Linux build also installs NVIDIA's CUDA libraries.
+      - name: Install dependencies
+        run: pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements-dev.txt
+
+      - name: Run tests
+        run: pytest
